@@ -33,7 +33,7 @@
 
 - **安装包**（推荐）：运行 `src-tauri/target/release/bundle/nsis/EasyIDE_0.1.0_x64-setup.exe`（中文向导、免管理员、当前用户安装，自动注册 `.md` 右键菜单）。
 - **便携版**：直接运行 `src-tauri/target/release/EasyIDE.exe`，单文件绿色免安装。
-- 或从 [Releases](https://github.com/FortC/EasyIDE/releases) 下载最新版本。
+- 或从 [Releases](https://github.com/FortC/Easy-IDE/releases) 下载最新版本。
 
 ## 使用 / Usage
 
@@ -69,4 +69,4 @@ cargo check          # Rust 侧检查（在 src-tauri/ 下）
 
 ## License
 
-Apache-2.0
+MIT

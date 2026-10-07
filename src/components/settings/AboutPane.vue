@@ -26,7 +26,7 @@
   <div class="st-row">
     <label>{{ t("st.about.repo") }}</label>
     <a class="ab-link" :href="REPO" @click.prevent="openRepo">
-      <Icon name="external-link" :size="13" /> github.com/FortC/Easy-MD
+      <Icon name="external-link" :size="13" /> github.com/FortC/Easy-IDE
     </a>
   </div>
   <div class="st-row">
@@ -45,7 +45,7 @@ import pkg from "../../../package.json";
 
 const AUTHOR = "clb";
 const EMAIL = "lamthebest@foxmail.com";
-const REPO = "https://github.com/FortC/Easy-MD";
+const REPO = "https://github.com/FortC/Easy-IDE";
 
 // 与 PreviewView 外链一致：走 window.open 由系统默认浏览器打开
 function openRepo() {
