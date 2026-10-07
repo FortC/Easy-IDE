@@ -43,7 +43,7 @@ interface RibbonBtn {
 /** 图谱/日历为全屏独立视图：左侧栏不显示，点面板按钮时退回编辑器 */
 const fullView = computed(() => ui.view === "graph" || ui.view === "calendar");
 
-function showLeft(tab: "notes" | "jots" | "tags" | "docs") {
+function showLeft(tab: "notes" | "jots" | "tags" | "docs" | "git" | "maven") {
   if (fullView.value) ui.view = "editor";
   ui.leftVisible = true;
   ui.leftTab = tab;
@@ -63,6 +63,8 @@ const topButtons = computed<RibbonBtn[]>(() => [
   { name: "docs", icon: "book", label: t("rb.docs"), title: t("rb.docsTitle"), action: () => showLeft("docs"), active: !fullView.value && ui.leftVisible && ui.leftTab === "docs" },
   { name: "jots", icon: "pencil", label: t("rb.jot"), title: t("rb.jotListTitle"), action: () => showLeft("jots"), active: !fullView.value && ui.leftVisible && ui.leftTab === "jots" },
   { name: "tags", icon: "tag", label: t("rb.tags"), title: t("rb.tagsTitle"), action: () => showLeft("tags"), active: !fullView.value && ui.leftVisible && ui.leftTab === "tags" },
+  { name: "git", icon: "git-branch", label: t("rb.git"), title: t("rb.gitTitle"), action: () => showLeft("git"), active: !fullView.value && ui.leftVisible && ui.leftTab === "git" },
+  { name: "maven", icon: "package", label: t("rb.maven"), title: t("rb.mavenTitle"), action: () => showLeft("maven"), active: !fullView.value && ui.leftVisible && ui.leftTab === "maven" },
   { name: "graph", icon: "share-2", label: t("rb.graph"), title: t("rb.graphTitle"), action: () => { ui.view = "graph"; }, active: ui.view === "graph" },
   { name: "calendar", icon: "calendar-days", label: t("rb.calendar"), title: t("rb.calendarTitle"), action: () => { ui.view = "calendar"; }, active: ui.view === "calendar" },
   {

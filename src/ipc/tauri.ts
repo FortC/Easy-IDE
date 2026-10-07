@@ -10,14 +10,21 @@ import type {
   ToolInfo,
   CodeFileHit,
   CodeSymbol,
+  CommitInfo,
+  DepNode,
   DocEntry,
   DocsClassifyProgress,
   DocsScanResult,
   DocsSettingsPatch,
   FsEntry,
+  GitStatus,
   McpServerConfig,
+  ModuleTree,
   NoteIndex,
   OpenVaultResult,
+  PkgBaselines,
+  PkgHistoryItem,
+  PkgResult,
   ResolveResult,
   SymbolHit,
   TagCount,
@@ -110,6 +117,19 @@ export const api = {
     listen<{ id: number; line: string; stderr: boolean }>("console-output", (ev) => cb(ev.payload)),
   onConsoleExit: (cb: (e: { id: number; code: number | null }) => void): Promise<UnlistenFn> =>
     listen<{ id: number; code: number | null }>("console-exit", (ev) => cb(ev.payload)),
+
+  // ---- P4 内置工具 ----
+  gitStatus: () => invoke<GitStatus>("git_status"),
+  gitDiff: (path: string) => invoke<string>("git_diff", { path }),
+  gitLog: (limit?: number) => invoke<CommitInfo[]>("git_log", { limit: limit ?? null }),
+  gitTags: () => invoke<string[]>("git_tags"),
+  mavenDepTree: () => invoke<ModuleTree[]>("maven_dep_tree"),
+  mavenApplyExclusion: (depGroup: string, depArtifact: string, exclGroup: string, exclArtifact: string) =>
+    invoke<string>("maven_apply_exclusion", { depGroup, depArtifact, exclGroup, exclArtifact }),
+  pkgBaselines: () => invoke<PkgBaselines>("pkg_baselines"),
+  pkgBuild: (baseline: string, template: string) =>
+    invoke<PkgResult>("pkg_build", { baseline, template }),
+  pkgHistory: () => invoke<PkgHistoryItem[]>("pkg_history"),
   onDocsClassifyProgress: (cb: (p: DocsClassifyProgress) => void): Promise<UnlistenFn> =>
     listen<DocsClassifyProgress>("docs-classify-progress", (e) => cb(e.payload)),
 

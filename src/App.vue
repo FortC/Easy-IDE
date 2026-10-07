@@ -104,6 +104,9 @@ onMounted(async () => {
   // 索引增量事件：镜像更新 + 刷新文件树受影响目录
   api.onVaultChanged((payload) => {
     notesIndex.applyVaultChanged(payload);
+    if (payload.code_changed.length > 0 || payload.updated.length > 0 || payload.removed.length > 0) {
+      vault.refreshGitSoon();
+    }
     for (const rel of [
       ...payload.updated.map((u) => u.path),
       ...payload.removed,

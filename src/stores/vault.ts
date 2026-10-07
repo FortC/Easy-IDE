@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { api } from "../ipc/tauri";
+import type { GitFileStatus } from "../types";
 import type { FsEntry, NoteIndex, OpenVaultResult, VaultEntry } from "../types";
 import { useNotesIndexStore } from "./notesIndex";
 import { useEditorStore } from "./editor";
@@ -14,10 +15,31 @@ export const useVaultStore = defineStore("vault", {  state: () => ({
     dirCache: {} as Record<string, FsEntry[]>,
     /** 已展开的目录 */
     expanded: {} as Record<string, boolean>,
+    /** Git 工作区状态（path -> M/A/D/R/?），文件树着色用 */
+    gitFiles: {} as Record<string, string>,
+    gitBranch: "",
+    _gitTimer: null as ReturnType<typeof setTimeout> | null,
   }),
   actions: {
     async loadVaultList() {
       this.vaultList = await api.listVaults();
+    },
+    /** 刷新 Git 状态（打开工作区/文件变化防抖调用） */
+    async refreshGit() {
+      try {
+        const st = await api.gitStatus();
+        const map: Record<string, string> = {};
+        for (const f of st.files as GitFileStatus[]) map[f.path] = f.status;
+        this.gitFiles = map;
+        this.gitBranch = st.branch;
+      } catch {
+        this.gitFiles = {};
+        this.gitBranch = "";
+      }
+    },
+    refreshGitSoon() {
+      if (this._gitTimer) clearTimeout(this._gitTimer);
+      this._gitTimer = setTimeout(() => this.refreshGit(), 600);
     },
     /** 后端已打开 vault（如右键文件打开）时，前端同步状态 */
     applyOpened(root: string, notes: NoteIndex[]) {
@@ -40,6 +62,7 @@ export const useVaultStore = defineStore("vault", {  state: () => ({
       this.expanded = {};
       await this.loadDir("");
       await this.loadVaultList();
+      void this.refreshGit();
       await useEditorStore().restoreSession();
     },
     async create(path: string) {

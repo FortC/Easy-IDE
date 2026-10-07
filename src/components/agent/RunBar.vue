@@ -14,6 +14,10 @@
       </button>
     </div>
     <div class="rb-right">
+      <button class="rb-preset rb-pkg" :title="t('pk.title')" @click="ui.pkgOpen = true">
+        <Icon name="archive" :size="13" />
+        <span>{{ t("pk.short") }}</span>
+      </button>
       <button
         class="rb-console-btn"
         :class="{ 'has-running': consoleStore.running.length > 0 }"

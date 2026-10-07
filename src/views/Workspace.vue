@@ -12,6 +12,8 @@
             <JotPanel v-else-if="ui.leftTab === 'jots'" />
             <TagPanel v-else-if="ui.leftTab === 'tags'" />
             <DocsPanel v-else-if="ui.leftTab === 'docs'" />
+            <GitPanel v-else-if="ui.leftTab === 'git'" />
+            <MavenPanel v-else-if="ui.leftTab === 'maven'" />
           </transition>
           <div class="ws-resizer" @mousedown="startDrag('left', $event)" />
         </div>
@@ -74,6 +76,7 @@
     </div>
     <StatusBar />
 
+    <IncrementalDialog />
     <SearchPalette />
     <SettingsDialog />
     <NewNoteDialog />
@@ -103,6 +106,9 @@ import DocsPanel from "../components/docs/DocsPanel.vue";
 import RunBar from "../components/agent/RunBar.vue";
 import AgentPanel from "../components/agent/AgentPanel.vue";
 import ConsolePanel from "../components/console/ConsolePanel.vue";
+import GitPanel from "../components/git/GitPanel.vue";
+import MavenPanel from "../components/maven/MavenPanel.vue";
+import IncrementalDialog from "../components/pkg/IncrementalDialog.vue";
 import { useUiStore } from "../stores/ui";
 import { t } from "../i18n";
 

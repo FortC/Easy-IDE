@@ -248,7 +248,7 @@ export interface GraphDoc {
 
 export type EditMode = "source" | "preview" | "split";
 export type MainView = "editor" | "graph" | "canvas" | "calendar" | "jot";
-export type LeftTab = "notes" | "jots" | "tags" | "docs";
+export type LeftTab = "notes" | "jots" | "tags" | "docs" | "git" | "maven";
 export type RightTab = "outline" | "backlinks" | "props" | "ai";
 
 /** AI Agent（P3） */
@@ -268,6 +268,62 @@ export interface SessionDoc {
   title: string;
   updated: string;
   messages: AgentMessage[];
+}
+
+/** Git 集成（P4） */
+export interface GitFileStatus {
+  path: string;
+  /** M / A / D / R / ? */
+  status: string;
+}
+
+export interface GitStatus {
+  is_repo: boolean;
+  branch: string;
+  files: GitFileStatus[];
+}
+
+export interface CommitInfo {
+  hash: string;
+  subject: string;
+  date: string;
+}
+
+/** Maven 依赖树（P4） */
+export interface DepNode {
+  gav: string;
+  group: string;
+  artifact: string;
+  version: string;
+  scope: string;
+  depth: number;
+  conflict_with: string | null;
+  children: DepNode[];
+}
+
+export interface ModuleTree {
+  module: string;
+  root: DepNode;
+}
+
+/** 增量包（P4） */
+export interface PkgResult {
+  zip_path: string;
+  entries: string[];
+  skipped: string[];
+}
+
+export interface PkgHistoryItem {
+  time: string;
+  baseline: string;
+  template: string;
+  zip: string;
+  count: number;
+}
+
+export interface PkgBaselines {
+  tags: string[];
+  commits: CommitInfo[];
 }
 
 export interface ToolInfo {

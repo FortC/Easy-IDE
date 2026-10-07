@@ -20,7 +20,7 @@
 | P1 | 符号索引 + 四级快速检索（Ctrl+P / Ctrl+N / Ctrl+Shift+Alt+N / Ctrl+Shift+F）+ 代码大纲 | ✅ 已完成 |
 | P2 | 项目文档中心（MD 扫描/五级分类链/归档/ZIP/AGENTS.md/AI 分类与快捷操作，知识库项目维度 .easyide/） | ✅ 已完成 |
 | P3 | AI Agent 中枢（流式/多轮/工具调用循环 + 命令确认门）+ 工具链配置（JDK/Maven/Node/Git 自动探测）+ 控制台 + 7 个预设场景（运行/日志/构建/依赖/修复/解读/测试） | ✅ 已完成 |
-| P4 | Git 集成、Maven 依赖树/冲突（Maven Helper 等价）、增量包（war/fat-jar 模板）、交互终端 | ⏳ |
+| P4 | Git 集成（状态着色/分支面板/diff/AI 提交）、Maven 依赖树/冲突/一键排除（Maven Helper 等价）、增量包（tag/commit 基线 + war/fat-jar/classes 模板 + 历史） | ✅ 已完成 |
 | P5 | 主题/快捷键设置页、i18n 补全、性能冲刺、1.0.0 发布 | ⏳ |
 
 ## 技术栈

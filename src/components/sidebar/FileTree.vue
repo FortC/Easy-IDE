@@ -20,7 +20,13 @@
       <div
         v-else
         class="emd-tree-item ft-row"
-        :class="{ 'is-active': isActive(entry), 'is-multi-selected': multiSelected.has(entry.path) }"
+        :class="{
+          'is-active': isActive(entry),
+          'is-multi-selected': multiSelected.has(entry.path),
+          'git-m': vault.gitFiles[entry.path] === 'M',
+          'git-a': ['A', '?'].includes(vault.gitFiles[entry.path] ?? ''),
+          'git-d': vault.gitFiles[entry.path] === 'D',
+        }"
         :style="{ paddingLeft: 6 + depth * 14 + 'px' }"
         @click="openEntry(entry, $event)"
         @contextmenu.prevent="emitMenu($event, entry)"
@@ -150,6 +156,17 @@ function emitMenu(ev: MouseEvent, entry: FsEntry) {
 /* 编译产物/依赖目录：置灰弱化 */
 .ft-row.is-build {
   opacity: 0.55;
+}
+/* Git 状态着色：修改橙 / 新增绿 / 删除划线 */
+.ft-row.git-m .ft-name {
+  color: #e5a03c;
+}
+.ft-row.git-a .ft-name {
+  color: #4ec970;
+}
+.ft-row.git-d .ft-name {
+  text-decoration: line-through;
+  opacity: 0.6;
 }
 /* 多选高亮：紫色背景 + 左侧紫条 + 右侧圆形勾 */
 .ft-row.is-multi-selected {

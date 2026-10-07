@@ -5,6 +5,9 @@ mod code_index;
 mod commands;
 mod config;
 mod docs_hub;
+mod gitops;
+mod maven;
+mod pkg;
 mod toolchain;
 mod index;
 mod mcp;
@@ -116,6 +119,15 @@ pub fn run() {
             commands::agent::agent_session_save,
             commands::agent::agent_session_delete,
             commands::agent::toolchain_detect,
+            commands::tools::git_status,
+            commands::tools::git_diff,
+            commands::tools::git_log,
+            commands::tools::git_tags,
+            commands::tools::maven_dep_tree,
+            commands::tools::maven_apply_exclusion,
+            commands::tools::pkg_baselines,
+            commands::tools::pkg_build,
+            commands::tools::pkg_history,
         ])
         .run(tauri::generate_context!())
         .expect("EasyIDE 启动失败");
