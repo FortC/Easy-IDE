@@ -32,9 +32,6 @@ pub const KNOWLEDGE_ROLE_NAMES: [&str; 4] = ["需求库", "示例库", "成果�
 
 /// AI 工具文档组的固定类别名（不会与用户类别冲突：手动归类不提供此项）
 pub const AI_DOCS_CATEGORY: &str = "AI 工具文档";
-/// 未分组归类名（仅前端展示用，不落盘）
-pub const UNCLASSIFIED: &str = "未分类";
-
 /// 项目级持久化状态（.easyide/md-assistant.json）
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct DocsState {

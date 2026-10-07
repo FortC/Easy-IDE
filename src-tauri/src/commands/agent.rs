@@ -314,11 +314,11 @@ pub fn agent_run_command(app: AppHandle, state: State<'_, AppState>, command: St
         for (k, v) in &env {
             cmd.env(k, v);
         }
-        let mut child = cmd
+        let spawned = cmd
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn();
-        let mut child = match child {
+        let mut child = match spawned {
             Ok(c) => c,
             Err(e) => {
                 let _ = app.emit(
