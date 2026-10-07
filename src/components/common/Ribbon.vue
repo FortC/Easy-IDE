@@ -43,7 +43,7 @@ interface RibbonBtn {
 /** 图谱/日历为全屏独立视图：左侧栏不显示，点面板按钮时退回编辑器 */
 const fullView = computed(() => ui.view === "graph" || ui.view === "calendar");
 
-function showLeft(tab: "notes" | "jots" | "tags") {
+function showLeft(tab: "notes" | "jots" | "tags" | "docs") {
   if (fullView.value) ui.view = "editor";
   ui.leftVisible = true;
   ui.leftTab = tab;
@@ -60,6 +60,7 @@ async function createJot() {
 
 const topButtons = computed<RibbonBtn[]>(() => [
   { name: "notes", icon: "file-text", label: t("rb.notes"), title: t("rb.notesTitle"), action: () => showLeft("notes"), active: !fullView.value && ui.leftVisible && ui.leftTab === "notes" },
+  { name: "docs", icon: "book", label: t("rb.docs"), title: t("rb.docsTitle"), action: () => showLeft("docs"), active: !fullView.value && ui.leftVisible && ui.leftTab === "docs" },
   { name: "jots", icon: "pencil", label: t("rb.jot"), title: t("rb.jotListTitle"), action: () => showLeft("jots"), active: !fullView.value && ui.leftVisible && ui.leftTab === "jots" },
   { name: "tags", icon: "tag", label: t("rb.tags"), title: t("rb.tagsTitle"), action: () => showLeft("tags"), active: !fullView.value && ui.leftVisible && ui.leftTab === "tags" },
   { name: "graph", icon: "share-2", label: t("rb.graph"), title: t("rb.graphTitle"), action: () => { ui.view = "graph"; }, active: ui.view === "graph" },

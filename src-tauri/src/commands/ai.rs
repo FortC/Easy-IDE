@@ -31,7 +31,7 @@ fn truncate(s: String, max: usize) -> String {
     format!("{}\n…（内容过长已截断）", t)
 }
 
-fn chat_blocking(
+pub(crate) fn chat_blocking(
     settings: &config::AppSettings,
     prompt: &str,
     system: Option<&str>,

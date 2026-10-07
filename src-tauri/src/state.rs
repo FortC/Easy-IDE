@@ -1,6 +1,7 @@
 //! 全局状态：当前打开的 vault 上下文。
 
 use crate::code_index::engine::CodeIndexEngine;
+use crate::docs_hub::model::DocsState;
 use crate::index::engine::IndexEngine;
 use crate::index::watcher::WatcherHandle;
 use std::path::{Component, Path, PathBuf};
@@ -13,6 +14,8 @@ pub struct VaultContext {
     /// 代码索引（符号/文件清单），与笔记引擎平行
     pub code_engine: CodeIndexEngine,
     pub code_cache_path: PathBuf,
+    /// 文档中心项目级状态（.easyide/md-assistant.json 的内存镜像）
+    pub docs: DocsState,
     pub watcher: Option<WatcherHandle>,
 }
 

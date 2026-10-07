@@ -78,6 +78,9 @@ pub(crate) fn open_vault_inner(
     code_engine.refresh_against_disk(&root);
     code_engine.save_cache(&code_cache_path);
 
+    // 文档中心项目级状态（.easyide/md-assistant.json；不存在则用默认值）
+    let docs = crate::docs_hub::hub::load_state(&root);
+
     let watch = watcher::spawn(root.clone(), app.clone())
         .map_err(|e| format!("文件监听启动失败：{}", e))?;
 
@@ -90,6 +93,7 @@ pub(crate) fn open_vault_inner(
             cache_path,
             code_engine,
             code_cache_path,
+            docs,
             watcher: Some(watch),
         });
     }

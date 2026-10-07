@@ -173,6 +173,48 @@ export interface TextHit {
   text: string;
 }
 
+/** 文档中心（P2，移植 idea-md-assistant） */
+export interface DocEntry {
+  path: string;
+  name: string;
+  mtime: number;
+  size: number;
+  from_ai_dir: boolean;
+  date_key: string;
+  category: string | null;
+}
+
+export interface DocsStateView {
+  knowledge_dirs: [string, string][];
+  ai_tool_dirs: string;
+  show_ai_tool_docs: boolean;
+  default_group: string;
+  agents_target: string;
+  rule_extra: string;
+  ignored_count: number;
+}
+
+export interface DocsScanResult {
+  entries: DocEntry[];
+  categories: string[];
+  state: DocsStateView;
+}
+
+export interface DocsSettingsPatch {
+  knowledge_dirs?: [string, string][];
+  ai_tool_dirs?: string;
+  show_ai_tool_docs?: boolean;
+  default_group?: string;
+  agents_target?: string;
+  rule_extra?: string;
+  categories?: string[];
+}
+
+export interface DocsClassifyProgress {
+  done: number;
+  total: number;
+}
+
 /** .graph 图谱文件（JSON）模型 */
 export interface GraphNode {
   id: string;
@@ -198,5 +240,5 @@ export interface GraphDoc {
 
 export type EditMode = "source" | "preview" | "split";
 export type MainView = "editor" | "graph" | "canvas" | "calendar" | "jot";
-export type LeftTab = "notes" | "jots" | "tags";
+export type LeftTab = "notes" | "jots" | "tags" | "docs";
 export type RightTab = "outline" | "backlinks" | "props";

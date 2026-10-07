@@ -11,6 +11,7 @@
             <FileExplorer v-if="ui.leftTab === 'notes'" />
             <JotPanel v-else-if="ui.leftTab === 'jots'" />
             <TagPanel v-else-if="ui.leftTab === 'tags'" />
+            <DocsPanel v-else-if="ui.leftTab === 'docs'" />
           </transition>
           <div class="ws-resizer" @mousedown="startDrag('left', $event)" />
         </div>
@@ -95,6 +96,7 @@ import SearchPalette from "../components/search/SearchPalette.vue";
 import SettingsDialog from "../components/settings/SettingsDialog.vue";
 import JotPanel from "../components/sidebar/JotPanel.vue";
 import JotEditor from "../components/jot/JotEditor.vue";
+import DocsPanel from "../components/docs/DocsPanel.vue";
 import { useUiStore } from "../stores/ui";
 import { t } from "../i18n";
 

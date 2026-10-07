@@ -6,6 +6,10 @@ import type {
   Backlink,
   CodeFileHit,
   CodeSymbol,
+  DocEntry,
+  DocsClassifyProgress,
+  DocsScanResult,
+  DocsSettingsPatch,
   FsEntry,
   McpServerConfig,
   NoteIndex,
@@ -64,6 +68,23 @@ export const api = {
     caseSensitive: boolean | null = null,
     maxResults: number | null = null,
   ) => invoke<TextHit[]>("code_text_search", { query, caseSensitive, maxResults }),
+
+  // ---- 文档中心（P2） ----
+  docsScan: () => invoke<DocsScanResult>("docs_scan"),
+  docsMove: (paths: string[], category: string) =>
+    invoke<[string, string][]>("docs_move", { paths, category }),
+  docsIgnore: (paths: string[]) => invoke<void>("docs_ignore", { paths }),
+  docsUnignore: (path: string | null) => invoke<void>("docs_unignore", { path }),
+  docsZip: (entries: [string, string][]) => invoke<string>("docs_zip", { entries }),
+  docsGenerateAgents: () => invoke<string>("docs_generate_agents"),
+  docsUpdateSettings: (settings: DocsSettingsPatch) =>
+    invoke<void>("docs_update_settings", { settings }),
+  docsSetMapping: (mapping: Record<string, string>) =>
+    invoke<void>("docs_set_mapping", { mapping }),
+  docsAiClassify: (paths: string[]) => invoke<number>("docs_ai_classify", { paths }),
+  docsQuickOp: (path: string, op: string) => invoke<string>("docs_quick_op", { path, op }),
+  onDocsClassifyProgress: (cb: (p: DocsClassifyProgress) => void): Promise<UnlistenFn> =>
+    listen<DocsClassifyProgress>("docs-classify-progress", (e) => cb(e.payload)),
 
   // ---- 索引 ----
   rebuildIndex: () => invoke<NoteIndex[]>("rebuild_index"),

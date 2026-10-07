@@ -4,6 +4,7 @@
 mod code_index;
 mod commands;
 mod config;
+mod docs_hub;
 mod index;
 mod mcp;
 mod state;
@@ -95,6 +96,16 @@ pub fn run() {
             commands::code_index::code_file_symbols,
             commands::code_index::code_file_search,
             commands::code_index::code_text_search,
+            commands::docs::docs_scan,
+            commands::docs::docs_move,
+            commands::docs::docs_ignore,
+            commands::docs::docs_unignore,
+            commands::docs::docs_zip,
+            commands::docs::docs_generate_agents,
+            commands::docs::docs_update_settings,
+            commands::docs::docs_set_mapping,
+            commands::docs::docs_ai_classify,
+            commands::docs::docs_quick_op,
         ])
         .run(tauri::generate_context!())
         .expect("EasyIDE 启动失败");
