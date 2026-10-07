@@ -1,6 +1,6 @@
 [package]
 name = "easyide"
-version = "0.2.0"
+version = "0.1.0"
 description = "EasyIDE - 轻量极速的 AI 代码 IDE"
 authors = ["clb"]
 edition = "2021"

@@ -28,6 +28,7 @@ export const useVaultStore = defineStore("vault", {  state: () => ({
       this.expanded = {};
       this.loadDir("");
       this.loadVaultList();
+      void useEditorStore().restoreSession();
     },
     async open(path: string) {
       const res: OpenVaultResult = await api.openVault(path);
@@ -39,6 +40,7 @@ export const useVaultStore = defineStore("vault", {  state: () => ({
       this.expanded = {};
       await this.loadDir("");
       await this.loadVaultList();
+      await useEditorStore().restoreSession();
     },
     async create(path: string) {
       const res = await api.createVault(path);

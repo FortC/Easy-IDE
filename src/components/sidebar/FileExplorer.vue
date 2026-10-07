@@ -203,8 +203,8 @@ async function confirmRename(name: string) {
   dialog.mode = "none";
   if (!entry) return;
   const newPath = await api.renamePath(entry.path, name);
-  // 修正编辑器与树
-  if (editor.activePath === entry.path) editor.renameSelf(newPath);
+  // 修正编辑器标签与树
+  editor.renamePath(entry.path, newPath);
   await vault.refreshParents(newPath);
   await indexStore.rebuild();
 }
@@ -213,7 +213,8 @@ async function deleteEntry(e: FsEntry | null) {
   if (!e) return;
   if (!confirm(`${tf("fe.confirmDel", { name: e.name })}`)) return;
   await api.deletePath(e.path);
-  if (editor.activePath === e.path) editor.reset();
+  // 关掉对应标签（若打开）
+  editor.removePath(e.path);
   await vault.refreshParents(e.path);
   await indexStore.rebuild();
 }

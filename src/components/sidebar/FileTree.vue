@@ -5,6 +5,7 @@
       <div
         v-if="entry.is_dir"
         class="emd-tree-item ft-row"
+        :class="{ 'is-build': isBuildDir(entry) }"
         :style="{ paddingLeft: 6 + depth * 14 + 'px' }"
         @click="vault.toggleExpand(entry.path)"
         @contextmenu.prevent="emitMenu($event, entry)"
@@ -46,6 +47,7 @@ import { useVaultStore } from "../../stores/vault";
 import { useUiStore } from "../../stores/ui";
 import { useEditorStore } from "../../stores/editor";
 import { useSettingsStore } from "../../stores/settings";
+import { BUILD_DIRS, iconForFile, isTextEditable } from "../../lib/filetypes";
 import type { FsEntry } from "../../types";
 
 const props = withDefaults(defineProps<{ dir: string; depth?: number }>(), {
@@ -69,24 +71,21 @@ window.addEventListener("emd-multi-select-changed", ((e: CustomEvent<Set<string>
 
 onMounted(async () => {
   let list = await vault.loadDir(props.dir);
-  // 笔记树只展示笔记相关内容：隐藏小计目录与图谱文件（图谱在图谱模块里管理）
-  if (props.dir === "" || props.dir === "jots" || props.dir === "daily") {
+  // 根目录：隐藏应用私有目录与笔记专用目录
+  if (props.dir === "") {
     const jotDir = (useSettingsStore().data.daily_dir || "jots").replace(/^\/+$|\/+$/g, "");
-    if (props.dir === "") {
-      // 根目录：隐藏 jots/daily 文件夹本身
-      list = list.filter((e) => e.name !== jotDir && e.name !== "daily" && e.name !== "jots");
-    }
+    list = list.filter((e) => e.name !== jotDir && e.name !== "daily" && e.name !== "jots" && e.name !== ".easyide");
   }
   list = list.filter((e) => e.kind !== "graph");
   children.value = list;
 });
 
 function iconFor(e: FsEntry): string {
-  if (e.kind === "md") return "file-text";
-  if (e.kind === "canvas") return "layout-grid";
-  if (e.kind === "graph") return "share-2";
-  if (e.kind === "image") return "image";
-  return "file-text";
+  return iconForFile(e.name);
+}
+
+function isBuildDir(e: FsEntry): boolean {
+  return e.is_dir && BUILD_DIRS.has(e.name);
 }
 
 function isActive(e: FsEntry): boolean {
@@ -122,6 +121,11 @@ function openEntry(e: FsEntry, ev?: MouseEvent) {
     ui.view = "graph";
   } else if (e.kind === "image") {
     emit("open", e.path);
+  } else if (e.kind === "other" && isTextEditable(e.path)) {
+    // 代码 / 配置等文本文件：进编辑器标签
+    if (editor.isDirty) editor.save();
+    emit("open", e.path);
+    ui.view = "editor";
   }
 }
 
@@ -142,6 +146,10 @@ function emitMenu(ev: MouseEvent, entry: FsEntry) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* 编译产物/依赖目录：置灰弱化 */
+.ft-row.is-build {
+  opacity: 0.55;
 }
 /* 多选高亮：紫色背景 + 左侧紫条 + 右侧圆形勾 */
 .ft-row.is-multi-selected {

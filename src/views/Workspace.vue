@@ -78,7 +78,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, defineAsyncComponent, ref } from "vue";
 import TitleBar from "../components/common/TitleBar.vue";
 import Ribbon from "../components/common/Ribbon.vue";
 import StatusBar from "../components/common/StatusBar.vue";
@@ -93,13 +93,15 @@ import BacklinksPanel from "../components/panels/BacklinksPanel.vue";
 import PropertiesPanel from "../components/panels/PropertiesPanel.vue";
 import SearchPalette from "../components/search/SearchPalette.vue";
 import SettingsDialog from "../components/settings/SettingsDialog.vue";
-import GraphView from "../components/graph/GraphView.vue";
-import CanvasEditor from "../components/canvas/CanvasEditor.vue";
-import CalendarView from "../components/calendar/CalendarView.vue";
 import JotPanel from "../components/sidebar/JotPanel.vue";
 import JotEditor from "../components/jot/JotEditor.vue";
 import { useUiStore } from "../stores/ui";
 import { t } from "../i18n";
+
+// 重模块（force-graph / 画布 / 日历看板）懒加载：首次进入对应视图才拉取，减小首屏包体
+const GraphView = defineAsyncComponent(() => import("../components/graph/GraphView.vue"));
+const CanvasEditor = defineAsyncComponent(() => import("../components/canvas/CanvasEditor.vue"));
+const CalendarView = defineAsyncComponent(() => import("../components/calendar/CalendarView.vue"));
 
 const ui = useUiStore();
 const leftW = ref(268);

@@ -100,7 +100,8 @@ pub fn list_dir(state: State<'_, AppState>, path: Option<String>) -> Result<Vec<
         let entries = std::fs::read_dir(&full).map_err(|e| format!("读取目录失败：{}", e))?;
         for e in entries.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
-            if name.starts_with('.') || name == "node_modules" || name == "Thumbs.db" {
+            // IDE 需要展示项目点文件（.github/.mvn/.gitignore 等），只隐藏版本库与应用私有目录
+            if name == ".git" || name == ".easyide" || name == "Thumbs.db" {
                 continue;
             }
             let rel = e

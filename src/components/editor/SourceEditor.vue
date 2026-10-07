@@ -1,6 +1,6 @@
 <template>
   <div ref="wrapEl" class="se-wrap">
-    <div ref="host" class="cm-host" />
+    <div ref="host" class="cm-host" :class="{ 'is-code': !isMd }" />
     <!-- 选中文本时浮动的 AI 入口 -->
     <button
       v-show="aiBtn.visible"
@@ -16,23 +16,34 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, reactive, ref, watch } from "vue";
-import { EditorState, RangeSetBuilder } from "@codemirror/state";
+import { onMounted, onUnmounted, reactive, ref, watch, computed } from "vue";
+import { EditorState, RangeSetBuilder, Compartment, type Extension } from "@codemirror/state";
 import {
   EditorView,
   Decoration,
   type DecorationSet,
   ViewPlugin,
   keymap,
+  lineNumbers,
+  highlightActiveLine,
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
-import { autocompletion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
-import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
+import { autocompletion, closeBrackets, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
+import {
+  syntaxHighlighting,
+  defaultHighlightStyle,
+  bracketMatching,
+  foldGutter,
+  foldKeymap,
+  indentOnInput,
+  indentUnit,
+} from "@codemirror/language";
 import { api } from "../../ipc/tauri";
 import { useEditorStore } from "../../stores/editor";
 import { useNotesIndexStore } from "../../stores/notesIndex";
 import { useAiStore } from "../../stores/ai";
+import { codeLangOf, isMarkdown } from "../../lib/filetypes";
 import { t, tf } from "../../i18n";
 
 const host = ref<HTMLElement>();
@@ -42,6 +53,12 @@ const indexStore = useNotesIndexStore();
 const aiStore = useAiStore();
 let view: EditorView | null = null;
 let syncing = false; // 区分"编辑器输入"与"外部写入"
+
+/** 当前活动文档是否为 markdown（否则按代码文件渲染） */
+const isMd = computed(() => isMarkdown(editor.activePath));
+
+/** 语言扩展舱：代码文件的语言包按需异步加载后注入 */
+const langComp = new Compartment();
 
 // ---------- 选中浮动 AI 按钮 ----------
 const aiBtn = reactive({ visible: false, x: 0, y: 0, text: "" });
@@ -396,48 +413,82 @@ const pasteHandler = EditorView.domEventHandlers({
 });
 
 function makeState(): EditorState {
-  return EditorState.create({
-    doc: editor.content,
-    extensions: [
-      history(),
-      keymap.of([
-        // Ctrl+B 加粗 / Ctrl+I 斜体（Obsidian 习惯）
-        { key: "Mod-b", run: () => (view ? (wrapSel(view, "**"), true) : false) },
-        { key: "Mod-i", run: () => (view ? (wrapSel(view, "*"), true) : false) },
-        ...defaultKeymap,
-        ...historyKeymap,
-      ]),
+  const md = isMd.value;
+  const exts: Extension[] = [
+    history(),
+    keymap.of([
+      // Ctrl+B 加粗 / Ctrl+I 斜体（Obsidian 习惯，仅 md 生效）
+      { key: "Mod-b", run: () => (view ? (wrapSel(view, "**"), true) : false) },
+      { key: "Mod-i", run: () => (view ? (wrapSel(view, "*"), true) : false) },
+      ...defaultKeymap,
+      ...historyKeymap,
+    ]),
+    syntaxHighlighting(defaultHighlightStyle),
+    langComp.of([]),
+    EditorView.updateListener.of((u) => {
+      if (u.docChanged && !syncing) {
+        syncing = true;
+        editor.setContent(u.state.doc.toString());
+        syncing = false;
+      }
+      if (u.selectionSet || u.docChanged) updateAiButton();
+    }),
+  ];
+  if (md) {
+    exts.push(
       markdown(),
-      syntaxHighlighting(defaultHighlightStyle),
       markPlugin,
       autocompletion({
         override: [
-          (ctx: CompletionContext): CompletionResult | null =>
-            noteCompletion(ctx) ?? tagCompletion(ctx),
+          (ctx: CompletionContext): CompletionResult | null => noteCompletion(ctx) ?? tagCompletion(ctx),
         ],
       }),
       pasteHandler,
       EditorView.lineWrapping,
-      EditorView.theme({
-        "&": { height: "100%", fontSize: "var(--font-text-size)" },
-        ".cm-scroller": {
-          fontFamily: "var(--font-text)",
-          lineHeight: "1.6",
-          padding: "12px 8px",
-        },
-        ".cm-content": { caretColor: "var(--interactive-accent)" },
-        "&.cm-focused": { outline: "none" },
-      }),
-      EditorView.updateListener.of((u) => {
-        if (u.docChanged && !syncing) {
-          syncing = true;
-          editor.setContent(u.state.doc.toString());
-          syncing = false;
-        }
-        if (u.selectionSet || u.docChanged) updateAiButton();
-      }),
-    ],
-  });
+    );
+  } else {
+    // 代码文件：行号 + 折叠 + 括号匹配 + 自动补括号；不折行（横向滚动）
+    exts.push(
+      lineNumbers(),
+      foldGutter(),
+      indentOnInput(),
+      indentUnit.of("  "),
+      bracketMatching(),
+      closeBrackets(),
+      highlightActiveLine(),
+      keymap.of([...foldKeymap]),
+    );
+  }
+  exts.push(
+    EditorView.theme({
+      "&": {
+        height: "100%",
+        fontSize: md ? "var(--font-text-size)" : "calc(13px * var(--font-scale))",
+      },
+      ".cm-scroller": {
+        fontFamily: md ? "var(--font-text)" : "var(--font-mono)",
+        lineHeight: md ? "1.6" : "1.55",
+        padding: md ? "12px 8px" : "8px 0",
+      },
+      ".cm-content": { caretColor: "var(--interactive-accent)" },
+      "&.cm-focused": { outline: "none" },
+    }),
+  );
+  return EditorState.create({ doc: editor.content, extensions: exts });
+}
+
+/** 代码文件的语言包按需异步加载，就绪后注入语言舱 */
+function loadLanguage() {
+  const spec = codeLangOf(editor.activePath);
+  if (!spec) return;
+  spec
+    .load()
+    .then((exts) => {
+      view?.dispatch({ effects: langComp.reconfigure(exts) });
+    })
+    .catch(() => {
+      /* 语言包加载失败则保持纯文本编辑 */
+    });
 }
 
 /** 定位到某行（0 基）并滚动到可视区顶部 */
@@ -484,6 +535,8 @@ watch(
   () => editor.openToken,
   () => {
     view?.setState(makeState());
+    // 代码文件：异步加载语言包
+    loadLanguage();
     // 反链等行号跳转：纯源码模式没有预览组件兜底，这里直接定位；
     // 有锚点时留给预览组件处理
     const jump = editor.pendingJump;
@@ -548,6 +601,26 @@ watch(
 }
 .cm-host .cm-gutters {
   display: none;
+}
+/* 代码文件：显示行号/折叠槽 */
+.cm-host.is-code .cm-gutters {
+  display: block;
+  background: var(--background-primary);
+  border-right: 1px solid var(--background-modifier-border);
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: calc(12px * var(--font-scale));
+  min-width: 44px;
+}
+.cm-host.is-code .cm-activeLineGutter {
+  background: var(--background-primary-alt);
+  color: var(--text-muted);
+}
+.cm-host.is-code .cm-foldGutter span {
+  color: var(--text-faint);
+}
+.cm-host.is-code .cm-foldGutter span:hover {
+  color: var(--text-normal);
 }
 .cm-host .cm-activeLine {
   background: var(--background-primary-alt);

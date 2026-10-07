@@ -197,6 +197,14 @@ function onKeydown(e: KeyboardEvent) {
   if (key === "e") {
     e.preventDefault();
     editor.cycleMode();
+  } else if (key === "tab") {
+    // Ctrl+Tab / Ctrl+Shift+Tab：切换编辑器标签
+    e.preventDefault();
+    editor.cycleTab(e.shiftKey ? -1 : 1);
+  } else if (key === "w") {
+    // Ctrl+W：关闭当前标签
+    e.preventDefault();
+    if (editor.activePath) void editor.closeTab(editor.activePath);
   } else if (key === "p" && !e.shiftKey) {
     e.preventDefault();
     ui.openSearch("file");

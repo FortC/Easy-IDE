@@ -1,5 +1,8 @@
 <template>
   <div class="editor-pane">
+    <!-- 多标签栏 -->
+    <EditorTabs />
+
     <!-- 头部：标题 + 全量格式工具 + 操作 -->
     <div class="ep-header">
       <div class="ep-title" :title="editor.activePath" @click="startRename">
@@ -19,8 +22,8 @@
         <Icon v-if="!renaming" name="pencil" :size="11" class="ep-rename-hint" :title="t('ed.renameHint')" />
       </div>
 
-      <!-- 格式工具：全量内联，窄窗口内部横向滚动 -->
-      <div v-if="editor.mode !== 'preview'" class="ep-format">
+      <!-- 格式工具：全量内联，窄窗口内部横向滚动（仅 md） -->
+      <div v-if="isMdFile && editor.mode !== 'preview'" class="ep-format">
         <template v-for="b in formatBar" :key="b.key">
           <div v-if="b.key.startsWith('d:')" class="ep-f-sep" />
           <button v-else class="ep-f-btn" :title="b.title" @mousedown.prevent @click="runFormat(b.key)">
@@ -33,6 +36,7 @@
       <div class="ep-actions">
         <!-- 引用笔记：搜索并插入 [[ ]] 双链（与引用块 > 区分） -->
         <button
+          v-if="isMdFile"
           ref="citeBtn"
           class="ep-txt-btn ep-cite-btn"
           :class="{ 'is-open': citeOpen }"
@@ -44,6 +48,7 @@
           {{ t("ed.citeTxt") }}
         </button>
         <button
+          v-if="isMdFile"
           ref="tplBtn"
           class="ep-txt-btn"
           :title="t('ed.tpl')"
@@ -54,6 +59,7 @@
           {{ t("ed.tplTxt") }}
         </button>
         <button
+          v-if="isMdFile"
           ref="tagBtn"
           class="ep-txt-btn"
           :title="t('ed.tag')"
@@ -64,7 +70,7 @@
           {{ t("ed.tagTxt") }}
         </button>
 
-        <div class="ep-seg">
+        <div v-if="isMdFile" class="ep-seg">
           <button
             v-for="m in modes"
             :key="m.key"
@@ -167,12 +173,12 @@
       />
     </div>
 
-    <!-- 主体 -->
-    <div ref="bodyEl" class="ep-body" :class="`ep-${editor.mode}`">
+    <!-- 主体：代码文件强制纯源码形态 -->
+    <div ref="bodyEl" class="ep-body" :class="isMdFile ? `ep-${editor.mode}` : 'ep-source'">
       <div
-        v-if="editor.mode !== 'preview'"
+        v-if="editor.mode !== 'preview' || !isMdFile"
         class="ep-source"
-        :style="editor.mode === 'split' ? { width: splitRatio + '%', flex: '0 0 auto' } : {}"
+        :style="isMdFile && editor.mode === 'split' ? { width: splitRatio + '%', flex: '0 0 auto' } : {}"
       >
         <SourceEditor v-if="editor.isOpen" />
         <div v-else class="ep-empty">
@@ -184,13 +190,13 @@
         </div>
       </div>
       <div
-        v-if="editor.mode === 'split'"
+        v-if="isMdFile && editor.mode === 'split'"
         class="ep-splitter"
         :title="t('ed.splitter')"
         @pointerdown.stop="startSplitDrag"
         @dblclick="splitRatio = 50"
       />
-      <div v-if="editor.mode !== 'source'" class="ep-preview">
+      <div v-if="isMdFile && editor.mode !== 'source'" class="ep-preview">
         <PreviewView v-if="editor.isOpen" @jump="onJump" />
         <div v-else class="ep-empty"><Icon name="book" :size="40" /></div>
       </div>
@@ -204,6 +210,7 @@ import Icon from "../common/Icon.vue";
 import DropdownMenu, { type DropItem } from "../common/DropdownMenu.vue";
 import SourceEditor from "./SourceEditor.vue";
 import PreviewView from "./PreviewView.vue";
+import EditorTabs from "./EditorTabs.vue";
 import { useEditorStore } from "../../stores/editor";
 import { useUiStore } from "../../stores/ui";
 import { useSettingsStore } from "../../stores/settings";
@@ -213,6 +220,7 @@ import { api } from "../../ipc/tauri";
 import { exportHtml, exportMarkdown, exportPdf } from "../../lib/export";
 import { addTagToContent } from "../../lib/tags";
 import { applyTemplateVars, listTemplates } from "../../lib/template";
+import { isMarkdown } from "../../lib/filetypes";
 import { useAiStore } from "../../stores/ai";
 import { t, tf } from "../../i18n";
 
@@ -226,6 +234,9 @@ const menuOpen = ref(false);
 const moreBtn = ref<HTMLElement>();
 const bodyEl = ref<HTMLElement>();
 const splitRatio = ref(50);
+
+/** 当前活动文档是否 markdown：决定 md 工具栏/预览是否显示 */
+const isMdFile = computed(() => isMarkdown(editor.activePath));
 
 // ---- 模板下拉 ----
 const tplOpen = ref(false);
@@ -334,11 +345,11 @@ async function confirmRename() {
   }
 }
 
-const title = computed(() =>
-  editor.activePath
-    ? editor.activePath.split("/").pop()?.replace(/\.md$/i, "") || t("ed.noteWord")
-    : t("ed.notOpen"),
-);
+const title = computed(() => {
+  if (!editor.activePath) return t("ed.notOpen");
+  const name = editor.activePath.split("/").pop() || "";
+  return isMdFile.value ? name.replace(/\.md$/i, "") : name;
+});
 
 const modes = computed(() => [
   { key: "source" as const, label: t("ed.src"), title: t("ed.mSource") },
@@ -379,17 +390,24 @@ function runFormat(key: string) {
   window.dispatchEvent(new CustomEvent("emd-format", { detail: key }));
 }
 
-const menuItems = computed<DropItem[]>(() => [
-  { key: "aisum", label: t("ed.aiSum"), icon: "play" },
-  { key: "aiask", label: t("ed.aiAsk"), icon: "play" },
-  { key: "sep-ai", label: "", separator: true },
-  { key: "md", label: t("ed.expMd"), icon: "download", hint: t("ed.keepWiki") },
-  { key: "html", label: t("ed.expHtml"), icon: "download", hint: t("ed.singleFile") },
-  { key: "pdf", label: t("ed.expPdf"), icon: "download", hint: t("ed.printHint") },
-  { key: "sep-view", label: "", separator: true },
-  { key: "graph", label: t("ed.openGraph"), icon: "share-2", hint: "Ctrl+G" },
-  { key: "search", label: t("ed.searchAll"), icon: "search", hint: "Ctrl+Shift+F" },
-]);
+const menuItems = computed<DropItem[]>(() => {
+  const items: DropItem[] = [
+    { key: "aisum", label: t("ed.aiSum"), icon: "play" },
+    { key: "aiask", label: t("ed.aiAsk"), icon: "play" },
+  ];
+  if (isMdFile.value) {
+    items.push(
+      { key: "sep-ai", label: "", separator: true },
+      { key: "md", label: t("ed.expMd"), icon: "download", hint: t("ed.keepWiki") },
+      { key: "html", label: t("ed.expHtml"), icon: "download", hint: t("ed.singleFile") },
+      { key: "pdf", label: t("ed.expPdf"), icon: "download", hint: t("ed.printHint") },
+      { key: "sep-view", label: "", separator: true },
+      { key: "graph", label: t("ed.openGraph"), icon: "share-2", hint: "Ctrl+G" },
+    );
+  }
+  items.push({ key: "search", label: t("ed.searchAll"), icon: "search", hint: "Ctrl+Shift+F" });
+  return items;
+});
 
 async function onMenuSelect(key: string) {
   menuOpen.value = false;
