@@ -130,6 +130,11 @@ pub fn run() {
             commands::tools::pkg_build,
             commands::tools::pkg_history,
             commands::agent::diff_preview,
+            commands::terminal::terminal_create,
+            commands::terminal::terminal_write,
+            commands::terminal::terminal_resize,
+            commands::terminal::terminal_kill,
+            commands::terminal::terminal_alive,
         ])
         .run(tauri::generate_context!())
         .expect("EasyIDE 启动失败");

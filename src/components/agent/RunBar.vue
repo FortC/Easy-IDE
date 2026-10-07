@@ -22,7 +22,7 @@
         class="rb-console-btn"
         :class="{ 'has-running': consoleStore.running.length > 0 }"
         :title="t('cs.title')"
-        @click="ui.consoleVisible = !ui.consoleVisible"
+        @click="switchConsole('output')"
       >
         <Icon name="terminal" :size="13" />
       </button>
@@ -76,6 +76,15 @@ function presetPrompt(key: PresetKey): string {
       const file = editor.activePath || "（未打开文件）";
       return `请为当前打开的文件生成单元测试骨架（只生成代码，不执行）：先用 read_file 查看该文件，再给出完整的测试类代码与依赖说明。当前文件：${file}`;
     }
+  }
+}
+
+function switchConsole(tab: "output" | "terminal") {
+  if (ui.consoleVisible && ui.consoleTab === tab) {
+    ui.consoleVisible = false;
+  } else {
+    ui.consoleTab = tab;
+    ui.consoleVisible = true;
   }
 }
 

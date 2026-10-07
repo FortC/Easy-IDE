@@ -115,6 +115,7 @@ export interface AppSettings {
   maven_path: string;
   node_path: string;
   git_path: string;
+  keybindings: Record<string, string>;
 }
 
 export const defaultSettings = (): AppSettings => ({
@@ -143,6 +144,7 @@ export const defaultSettings = (): AppSettings => ({
   maven_path: "",
   node_path: "",
   git_path: "",
+  keybindings: {},
 });
 
 /** vault-changed 事件载荷 */

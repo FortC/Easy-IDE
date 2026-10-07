@@ -122,6 +122,19 @@ export const api = {
   onWorkspaceIndexed: (cb: () => void): Promise<UnlistenFn> =>
     listen("workspace-indexed", () => cb()),
 
+  // ---- 交互终端（PTY） ----
+  terminalCreate: (cols: number, rows: number) =>
+    invoke<number>("terminal_create", { cols, rows }),
+  terminalWrite: (id: number, data: string) =>
+    invoke<void>("terminal_write", { id, data }),
+  terminalResize: (id: number, cols: number, rows: number) =>
+    invoke<void>("terminal_resize", { id, cols, rows }),
+  terminalKill: (id: number) => invoke<void>("terminal_kill", { id }),
+  onTerminalOut: (cb: (e: { id: number; data: string }) => void): Promise<UnlistenFn> =>
+    listen<{ id: number; data: string }>("terminal-out", (ev) => cb(ev.payload)),
+  onTerminalExit: (cb: (e: { id: number; code: number | null }) => void): Promise<UnlistenFn> =>
+    listen<{ id: number; code: number | null }>("terminal-exit", (ev) => cb(ev.payload)),
+
   // ---- P4 内置工具 ----
   gitStatus: () => invoke<GitStatus>("git_status"),
   gitDiff: (path: string) => invoke<string>("git_diff", { path }),

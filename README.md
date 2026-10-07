@@ -43,6 +43,18 @@ cargo check          # Rust 侧检查（在 src-tauri/ 下）
 - 项目级状态：`<项目根>/.easyide/`（文档分类、AI 会话、运行预设）
 - 用户设置 / 索引缓存：`%APPDATA%/com.easyide.app/`
 
+## 性能实测（release 构建，10,000 文件合成基准）
+
+| 指标 | 预算 | 实测 |
+|---|---|---|
+| 10k 文件全量索引 | < 3s | **240 ms** |
+| 索引缓存写入 / 加载 | — | 11.5 ms / 8.8 ms |
+| 符号搜索 | < 30ms | **3.4 ms** |
+| 全文搜索（10k 文件并行） | < 300ms | **37 ms** |
+| 安装包 | < 15MB | **2.84 MB** |
+
+（基准复跑：`cargo test --release perf_index_10k -- --ignored --nocapture`；前端就绪耗时见 设置 → 关于）
+
 ## License
 
 Apache-2.0

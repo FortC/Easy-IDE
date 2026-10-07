@@ -8,6 +8,10 @@
     <span class="ab-value">v{{ version }}</span>
   </div>
   <div class="st-row">
+    <label>{{ t("st.about.boot") }}</label>
+    <span class="ab-value">{{ bootMs ? bootMs + " ms" : "—" }}</span>
+  </div>
+  <div class="st-row">
     <label>{{ t("st.about.author") }}</label>
     <span class="ab-value ab-select">{{ AUTHOR }}</span>
   </div>
@@ -55,6 +59,13 @@ getVersion()
   .catch(() => {});
 
 const copied = ref(false);
+const bootMs = ref("");
+try {
+  const raw = localStorage.getItem("easyide-boot-ms");
+  if (raw) bootMs.value = raw;
+} catch {
+  /* 忽略 */
+}
 let timer: ReturnType<typeof setTimeout> | undefined;
 
 async function copyEmail() {

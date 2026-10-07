@@ -8,5 +8,6 @@ pub mod mcp_cmd;
 pub mod os_open;
 pub mod search;
 pub mod settings;
+pub mod terminal;
 pub mod tools;
 pub mod vault;

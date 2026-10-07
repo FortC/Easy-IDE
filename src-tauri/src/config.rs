@@ -48,6 +48,8 @@ pub struct AppSettings {
     pub node_path: String,
     /// git.exe 路径
     pub git_path: String,
+    /// 自定义快捷键：action id → 键序列（如 "Ctrl+Shift+P"）；空 = 使用默认
+    pub keybindings: std::collections::HashMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -119,6 +121,7 @@ impl Default for AppSettings {
             maven_path: String::new(),
             node_path: String::new(),
             git_path: String::new(),
+            keybindings: std::collections::HashMap::new(),
         }
     }
 }

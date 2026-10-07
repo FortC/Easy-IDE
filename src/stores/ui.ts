@@ -16,6 +16,8 @@ export const useUiStore = defineStore("ui", {
     newNoteFolder: null as string | null,
     /** 底部控制台 */
     consoleVisible: false,
+    /** 控制台标签：输出 | 终端 */
+    consoleTab: "output" as "output" | "terminal",
     /** 增量包对话框 */
     pkgOpen: false,
     /** 当前打开的 canvas 文件（相对路径） */

@@ -74,6 +74,7 @@ import { useUiStore } from "./stores/ui";
 import { useSyncStore } from "./stores/sync";
 import { useAgentStore } from "./stores/agent";
 import { useConsoleStore } from "./stores/console";
+import { seqFromEvent, useKeybindingsStore } from "./stores/keybindings";
 import { openDailyNote } from "./lib/actions";
 
 const settings = useSettingsStore();
@@ -84,9 +85,11 @@ const ui = useUiStore();
 const sync = useSyncStore();
 const agentStore = useAgentStore();
 const consoleStore = useConsoleStore();
+const kb = useKeybindingsStore();
 
 onMounted(async () => {
   await settings.init();
+  kb.init();
   await sync.init();
   agentStore.bindEvents();
   consoleStore.bindEvents();
@@ -209,54 +212,67 @@ async function fallbackOpen() {
 
 // ---- 全局快捷键 ----
 function onKeydown(e: KeyboardEvent) {
-  const ctrl = e.ctrlKey || e.metaKey;
-  if (!ctrl) return;
-  const key = e.key.toLowerCase();
-  if (key === "e") {
-    e.preventDefault();
-    editor.cycleMode();
-  } else if (key === "tab") {
-    // Ctrl+Tab / Ctrl+Shift+Tab：切换编辑器标签
-    e.preventDefault();
-    editor.cycleTab(e.shiftKey ? -1 : 1);
-  } else if (key === "w") {
-    // Ctrl+W：关闭当前标签
-    e.preventDefault();
-    if (editor.activePath) void editor.closeTab(editor.activePath);
-  } else if (key === "n" && e.altKey && !e.shiftKey) {
-    // Ctrl+Alt+N：新建笔记（Ctrl+N 让位给类搜索）
-    e.preventDefault();
-    ui.openNewNote();
-  } else if (key === "n" && e.altKey && e.shiftKey) {
-    // Ctrl+Shift+Alt+N：符号搜索（方法/字段）
-    e.preventDefault();
-    ui.openSearch("symbol");
-  } else if (key === "n" && !e.altKey) {
-    // Ctrl+N：类搜索
-    e.preventDefault();
-    ui.openSearch("class");
-  } else if (key === "p" && !e.shiftKey) {
-    e.preventDefault();
-    ui.openSearch("file");
-  } else if (key === "f" && e.shiftKey) {
-    e.preventDefault();
-    ui.openSearch("content");
-  } else if (key === "n") {
-    e.preventDefault();
-    ui.openNewNote();
-  } else if (key === "d") {
-    e.preventDefault();
-    openDailyNote();
-  } else if (key === "g") {
-    e.preventDefault();
-    if (editor.isDirty) editor.save();
-    ui.view = ui.view === "graph" ? "editor" : "graph";
-  } else if (key === ",") {
-    e.preventDefault();
-    ui.settingsOpen = true;
-  } else if (key === "s") {
-    e.preventDefault();
-    editor.save();
+  if (!(e.ctrlKey || e.metaKey)) return;
+  const seq = seqFromEvent(e);
+  if (!seq) return;
+  const action = kb.reverse[seq];
+  if (!action) return;
+  e.preventDefault();
+  switch (action) {
+    case "fileSearch":
+      ui.openSearch("file");
+      break;
+    case "classSearch":
+      ui.openSearch("class");
+      break;
+    case "symbolSearch":
+      ui.openSearch("symbol");
+      break;
+    case "contentSearch":
+      ui.openSearch("content");
+      break;
+    case "newNote":
+      ui.openNewNote();
+      break;
+    case "daily":
+      openDailyNote();
+      break;
+    case "cycleMode":
+      editor.cycleMode();
+      break;
+    case "graph":
+      if (editor.isDirty) editor.save();
+      ui.view = ui.view === "graph" ? "editor" : "graph";
+      break;
+    case "settings":
+      ui.settingsOpen = true;
+      break;
+    case "save":
+      editor.save();
+      break;
+    case "nextTab":
+      editor.cycleTab(1);
+      break;
+    case "prevTab":
+      editor.cycleTab(-1);
+      break;
+    case "closeTab":
+      if (editor.activePath) void editor.closeTab(editor.activePath);
+      break;
+  }
+}
+
+// 首帧就绪耗时（自页面导航起点）：存 localStorage 供「关于」页展示
+{
+  const t0 = (window as unknown as Record<string, number>)["__easyideBootStart"];
+  if (t0 !== undefined) {
+    const ms = Math.round(performance.now() - t0);
+    try {
+      localStorage.setItem("easyide-boot-ms", String(ms));
+    } catch {
+      /* 忽略 */
+    }
+    console.info(`[perf] 前端就绪耗时 ${ms}ms`);
   }
 }
 

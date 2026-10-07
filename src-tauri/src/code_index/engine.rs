@@ -541,4 +541,72 @@ public class UserService {
 
         std::fs::remove_dir_all(&root).ok();
     }
+
+    /// 性能基准：10k 文件（8000 java + 2000 md/其它）全量索引耗时。
+    /// 显式运行：cargo test --release perf_index_10k -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn perf_index_10k() {
+        let root = std::env::temp_dir().join(format!("easyide-perf-{}", uuid::Uuid::new_v4()));
+        let t_setup = std::time::Instant::now();
+        let mut contents: Vec<String> = Vec::new();
+        for i in 0..8000 {
+            let dir = root.join("src").join(format!("pkg{}", i % 50));
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join(format!("Class{}.java", i));
+            std::fs::write(
+                &path,
+                format!(
+                    "package pkg{};
+public class Class{} {{
+    private int value = {};
+    public int getValue() {{ return value; }}
+    public void setValue(int v) {{ this.value = v; }}
+}}
+",
+                    i % 50, i, i
+                ),
+            )
+            .unwrap();
+            contents.push(path.to_string_lossy().to_string());
+        }
+        for i in 0..2000 {
+            let dir = root.join("docs").join(format!("d{}", i % 20));
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(format!("note{}.md", i)), format!("# 笔记 {}
+
+内容示例 {}
+", i, i)).unwrap();
+        }
+        println!("[perf] 造数 10000 文件耗时: {:?}", t_setup.elapsed());
+
+        let t0 = std::time::Instant::now();
+        let mut engine = CodeIndexEngine::default();
+        engine.refresh_against_disk(&root);
+        let scan = t0.elapsed();
+        println!("[perf] 全量索引耗时: {:?}（预算 <3s）", scan);
+        let sym_total: usize = engine.symbols.values().map(|f| f.symbols.len()).sum();
+        println!("[perf] 文件清单: {}，符号文件: {}，符号总数: {}", engine.files.len(), engine.symbols.len(), sym_total);
+        assert!(engine.files.len() >= 10_000, "文件数不足");
+        assert!(sym_total >= 8000 * 3, "符号数不足（每类应含 class+2 方法）");
+
+        let t1 = std::time::Instant::now();
+        engine.save_cache(&root.join("cache.json"));
+        println!("[perf] 缓存写入耗时: {:?}", t1.elapsed());
+
+        let t2 = std::time::Instant::now();
+        let loaded = CodeIndexEngine::load_cache(&root.join("cache.json")).unwrap();
+        println!("[perf] 缓存加载耗时: {:?}（文件 {}）", t2.elapsed(), loaded.files.len());
+
+        let t3 = std::time::Instant::now();
+        let hits = engine.search_symbols("getvalue", None, 20);
+        println!("[perf] 符号搜索耗时: {:?}（命中 {}）", t3.elapsed(), hits.len());
+
+        let cands = engine.search_candidates();
+        let t4 = std::time::Instant::now();
+        let thits = parallel_text_search(&root, &cands, "内容示例 1999", false, 100);
+        println!("[perf] 全文搜索耗时: {:?}（命中 {}，候选 {} 文件，预算 <300ms）", t4.elapsed(), thits.len(), cands.len());
+
+        std::fs::remove_dir_all(&root).ok();
+    }
 }
