@@ -29,6 +29,18 @@
 - 桌面：Tauri 2（Windows 优先）
 - 后端：Rust（索引引擎 / AI Agent / 工具链探测 / 命令执行）
 
+## 安装 / Install
+
+- **安装包**（推荐）：运行 `src-tauri/target/release/bundle/nsis/EasyIDE_0.1.0_x64-setup.exe`（中文向导、免管理员、当前用户安装，自动注册 `.md` 右键菜单）。
+- **便携版**：直接运行 `src-tauri/target/release/EasyIDE.exe`，单文件绿色免安装。
+- 或从 [Releases](https://github.com/FortC/EasyIDE/releases) 下载最新版本。
+
+## 使用 / Usage
+
+1. 首次启动 → 「打开项目文件夹」选择一个本地代码项目（Maven 项目体验最完整）。
+2. 设置（Ctrl+,）→ AI：填写 OpenAI 兼容或 Anthropic 的地址与 Key；设置 → 工具链：点「全部自动检测」。
+3. 日常入口：Ctrl+P 文件 / Ctrl+N 类 / Ctrl+Shift+F 全文检索；Ribbon「文档」管理项目 MD；RunBar 一键让 AI 运行/构建/修复；底部控制台切「终端」用交互式 shell。
+
 ## 开发
 
 ```bash
