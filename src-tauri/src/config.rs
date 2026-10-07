@@ -40,6 +40,14 @@ pub struct AppSettings {
     pub log_templates_dir: String,
     /// 选中的日志模板文件名（空 = 使用内置默认模板）
     pub log_template_name: String,
+    /// 工具链路径（空 = 自动探测）：JDK 主目录或 java.exe
+    pub jdk_path: String,
+    /// Maven 主目录或 mvn.cmd 路径
+    pub maven_path: String,
+    /// node.exe 路径
+    pub node_path: String,
+    /// git.exe 路径
+    pub git_path: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -107,6 +115,10 @@ impl Default for AppSettings {
             log_template: String::new(),
             log_templates_dir: "log-templates".into(),
             log_template_name: String::new(),
+            jdk_path: String::new(),
+            maven_path: String::new(),
+            node_path: String::new(),
+            git_path: String::new(),
         }
     }
 }

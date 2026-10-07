@@ -72,6 +72,8 @@ import { useNotesIndexStore } from "./stores/notesIndex";
 import { useEditorStore } from "./stores/editor";
 import { useUiStore } from "./stores/ui";
 import { useSyncStore } from "./stores/sync";
+import { useAgentStore } from "./stores/agent";
+import { useConsoleStore } from "./stores/console";
 import { openDailyNote } from "./lib/actions";
 
 const settings = useSettingsStore();
@@ -80,10 +82,14 @@ const notesIndex = useNotesIndexStore();
 const editor = useEditorStore();
 const ui = useUiStore();
 const sync = useSyncStore();
+const agentStore = useAgentStore();
+const consoleStore = useConsoleStore();
 
 onMounted(async () => {
   await settings.init();
   await sync.init();
+  agentStore.bindEvents();
+  consoleStore.bindEvents();
   applyCssSnippets();
   window.addEventListener("emd-snippets-changed", applyCssSnippets);
 

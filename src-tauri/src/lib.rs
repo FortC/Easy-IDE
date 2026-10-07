@@ -5,6 +5,7 @@ mod code_index;
 mod commands;
 mod config;
 mod docs_hub;
+mod toolchain;
 mod index;
 mod mcp;
 mod state;
@@ -106,6 +107,15 @@ pub fn run() {
             commands::docs::docs_set_mapping,
             commands::docs::docs_ai_classify,
             commands::docs::docs_quick_op,
+            commands::agent::agent_chat_stream,
+            commands::agent::agent_cancel,
+            commands::agent::agent_run_command,
+            commands::agent::agent_kill_command,
+            commands::agent::agent_sessions_list,
+            commands::agent::agent_session_load,
+            commands::agent::agent_session_save,
+            commands::agent::agent_session_delete,
+            commands::agent::toolchain_detect,
         ])
         .run(tauri::generate_context!())
         .expect("EasyIDE 启动失败");

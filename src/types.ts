@@ -111,6 +111,10 @@ export interface AppSettings {
   log_template: string;
   log_templates_dir: string;
   log_template_name: string;
+  jdk_path: string;
+  maven_path: string;
+  node_path: string;
+  git_path: string;
 }
 
 export const defaultSettings = (): AppSettings => ({
@@ -135,6 +139,10 @@ export const defaultSettings = (): AppSettings => ({
   log_template: "",
   log_templates_dir: "log-templates",
   log_template_name: "",
+  jdk_path: "",
+  maven_path: "",
+  node_path: "",
+  git_path: "",
 });
 
 /** vault-changed 事件载荷 */
@@ -241,4 +249,31 @@ export interface GraphDoc {
 export type EditMode = "source" | "preview" | "split";
 export type MainView = "editor" | "graph" | "canvas" | "calendar" | "jot";
 export type LeftTab = "notes" | "jots" | "tags" | "docs";
-export type RightTab = "outline" | "backlinks" | "props";
+export type RightTab = "outline" | "backlinks" | "props" | "ai";
+
+/** AI Agent（P3） */
+export interface AgentMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface SessionMeta {
+  id: string;
+  title: string;
+  updated: string;
+}
+
+export interface SessionDoc {
+  id: string;
+  title: string;
+  updated: string;
+  messages: AgentMessage[];
+}
+
+export interface ToolInfo {
+  kind: string;
+  found: boolean;
+  path: string;
+  version: string;
+  error: string;
+}

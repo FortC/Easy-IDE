@@ -14,6 +14,8 @@ export const useUiStore = defineStore("ui", {
     /** 新建笔记对话框 */
     newNoteOpen: false,
     newNoteFolder: null as string | null,
+    /** 底部控制台 */
+    consoleVisible: false,
     /** 当前打开的 canvas 文件（相对路径） */
     canvasPath: "",
     /** 当前打开的图谱："" = 全库引用图谱（自动），否则 .graph 相对路径 */

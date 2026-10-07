@@ -2,8 +2,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  AgentMessage,
   AppSettings,
   Backlink,
+  SessionDoc,
+  SessionMeta,
+  ToolInfo,
   CodeFileHit,
   CodeSymbol,
   DocEntry,
@@ -83,6 +87,29 @@ export const api = {
     invoke<void>("docs_set_mapping", { mapping }),
   docsAiClassify: (paths: string[]) => invoke<number>("docs_ai_classify", { paths }),
   docsQuickOp: (path: string, op: string) => invoke<string>("docs_quick_op", { path, op }),
+
+  // ---- AI Agent（P3） ----
+  agentChatStream: (messages: AgentMessage[], system: string) =>
+    invoke<number>("agent_chat_stream", { messages, system }),
+  agentCancel: (id: number) => invoke<void>("agent_cancel", { id }),
+  agentRunCommand: (command: string) => invoke<number>("agent_run_command", { command }),
+  agentKillCommand: (id: number) => invoke<void>("agent_kill_command", { id }),
+  agentSessionsList: () => invoke<SessionMeta[]>("agent_sessions_list"),
+  agentSessionLoad: (id: string) => invoke<SessionDoc>("agent_session_load", { id }),
+  agentSessionSave: (session: SessionDoc) => invoke<void>("agent_session_save", { session }),
+  agentSessionDelete: (id: string) => invoke<void>("agent_session_delete", { id }),
+  toolchainDetect: (kind: string, prefer?: string | null) =>
+    invoke<ToolInfo>("toolchain_detect", { kind, prefer: prefer ?? null }),
+  onAgentDelta: (cb: (e: { id: number; text: string }) => void): Promise<UnlistenFn> =>
+    listen<{ id: number; text: string }>("agent-delta", (ev) => cb(ev.payload)),
+  onAgentDone: (cb: (e: { id: number; text: string }) => void): Promise<UnlistenFn> =>
+    listen<{ id: number; text: string }>("agent-done", (ev) => cb(ev.payload)),
+  onAgentError: (cb: (e: { id: number; error: string } | { id: number; text: string; error?: string }) => void): Promise<UnlistenFn> =>
+    listen<{ id: number; error: string }>("agent-error", (ev) => cb(ev.payload)),
+  onConsoleOutput: (cb: (e: { id: number; line: string; stderr: boolean }) => void): Promise<UnlistenFn> =>
+    listen<{ id: number; line: string; stderr: boolean }>("console-output", (ev) => cb(ev.payload)),
+  onConsoleExit: (cb: (e: { id: number; code: number | null }) => void): Promise<UnlistenFn> =>
+    listen<{ id: number; code: number | null }>("console-exit", (ev) => cb(ev.payload)),
   onDocsClassifyProgress: (cb: (p: DocsClassifyProgress) => void): Promise<UnlistenFn> =>
     listen<DocsClassifyProgress>("docs-classify-progress", (e) => cb(e.payload)),
 

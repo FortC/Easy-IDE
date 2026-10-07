@@ -19,6 +19,7 @@
 
       <!-- 主区域 -->
       <div class="ws-main">
+        <RunBar />
         <transition name="emd-view" mode="out-in">
           <div :key="ui.view" class="ws-main-inner">
             <EditorPane v-if="ui.view === 'editor'" />
@@ -28,6 +29,7 @@
             <JotEditor v-else-if="ui.view === 'jot'" />
           </div>
         </transition>
+        <ConsolePanel />
 
         <!-- 右侧栏收起后的展开手柄 -->
         <button
@@ -60,7 +62,8 @@
           </div>
           <div class="ws-right-body">
             <transition name="emd-pane" mode="out-in">
-              <OutlinePanel v-if="ui.rightTab === 'outline'" />
+              <AgentPanel v-if="ui.rightTab === 'ai'" />
+              <OutlinePanel v-else-if="ui.rightTab === 'outline'" />
               <BacklinksPanel v-else-if="ui.rightTab === 'backlinks'" />
               <PropertiesPanel v-else-if="ui.rightTab === 'props'" />
             </transition>
@@ -97,6 +100,9 @@ import SettingsDialog from "../components/settings/SettingsDialog.vue";
 import JotPanel from "../components/sidebar/JotPanel.vue";
 import JotEditor from "../components/jot/JotEditor.vue";
 import DocsPanel from "../components/docs/DocsPanel.vue";
+import RunBar from "../components/agent/RunBar.vue";
+import AgentPanel from "../components/agent/AgentPanel.vue";
+import ConsolePanel from "../components/console/ConsolePanel.vue";
 import { useUiStore } from "../stores/ui";
 import { t } from "../i18n";
 
@@ -114,6 +120,7 @@ const fullView = computed(() => ui.view === "graph" || ui.view === "calendar");
 
 // computed：切换语言时标签同步更新
 const rightTabs = computed(() => [
+  { key: "ai" as const, label: t("ws.ai") },
   { key: "outline" as const, label: t("ws.outline") },
   { key: "backlinks" as const, label: t("ws.backlinks") },
   { key: "props" as const, label: t("ws.props") },
