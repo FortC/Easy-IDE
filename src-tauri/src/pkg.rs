@@ -1,7 +1,7 @@
 //! 增量包：git 基线 diff → 源码/资源变更 → target/classes 产物映射 → 按模板（classes/war/fat-jar）打 zip。
 //! 历史记录存 .easyide/packages.json。
 
-use crate::gitops::{self, FileStatus};
+use crate::gitops;
 use std::path::Path;
 use tauri::AppHandle;
 
@@ -52,7 +52,7 @@ fn classify_changed(path: &str) -> ChangedKind {
             return ChangedKind::Resource(p[idx + prefix.len()..].to_string());
         }
     }
-    if (p.starts_with("src/main/resources/") || p.starts_with("src/main/webapp/")) {
+    if p.starts_with("src/main/resources/") || p.starts_with("src/main/webapp/") {
         let rel = p
             .trim_start_matches("src/main/resources/")
             .trim_start_matches("src/main/webapp/");

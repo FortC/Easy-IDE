@@ -88,7 +88,8 @@ fn walk_files(root: &Path) -> impl Iterator<Item = walkdir::DirEntry> {
 }
 
 impl CodeIndexEngine {
-    /// 全量扫描（无缓存时的冷启动路径）
+    /// 全量扫描（无缓存时的冷启动路径；当前主路径为 refresh_against_disk，保留为工具 API）
+    #[allow(dead_code)]
     pub fn scan(root: &Path) -> Result<Self> {
         let mut engine = CodeIndexEngine::default();
         for entry in walk_files(root) {

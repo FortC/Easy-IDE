@@ -458,3 +458,21 @@ fn sanitize_id(id: &str) -> String {
 pub fn toolchain_detect(kind: String, prefer: Option<String>) -> Result<toolchain::ToolInfo, String> {
     Ok(toolchain::detect(&kind, prefer.as_deref().unwrap_or("")))
 }
+
+// ---------------- 文件修改提案 ----------------
+
+/// 生成旧内容(磁盘) → 新内容(AI 提案) 的 unified diff 预览
+#[tauri::command]
+pub fn diff_preview(
+    state: State<'_, AppState>,
+    path: String,
+    new_content: String,
+) -> Result<String, String> {
+    let guard = state.vault.lock().map_err(|e| e.to_string())?;
+    let vc = guard.as_ref().ok_or("尚未打开工作区")?;
+    let full = vc
+        .safe_join(&path)
+        .map_err(|e| format!("非法路径：{}", e))?;
+    let old = std::fs::read_to_string(&full).unwrap_or_default();
+    Ok(crate::difflib::unified_diff(&old, &new_content, &path))
+}

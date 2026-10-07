@@ -49,13 +49,13 @@ fn git_exec(app: &AppHandle, root: &Path, args: &[&str]) -> Result<String, Strin
 }
 
 /// 是否 git 仓库
-pub fn is_repo(app: &AppHandle, root: &Path) -> bool {
+pub fn is_repo(root: &Path) -> bool {
     root.join(".git").exists()
 }
 
 /// 工作区状态（porcelain 解析）
 pub fn status(app: &AppHandle, root: &Path) -> GitStatus {
-    if !is_repo(app, root) {
+    if !is_repo(root) {
         return GitStatus { is_repo: false, branch: String::new(), files: vec![] };
     }
     let branch = git_exec(app, root, &["rev-parse", "--abbrev-ref", "HEAD"])

@@ -57,7 +57,24 @@
 
       <!-- 流式输出中 -->
       <div v-if="agent.streaming" class="ag-msg ag-msg-ai">
-        <div v-if="agent.pendingCommand" class="ag-confirm">
+        <!-- 文件修改提案（write_file 确认门） -->
+        <div v-if="agent.pendingEdit" class="ag-confirm ag-edit-confirm">
+          <div class="ag-confirm-title">{{ t("ag.confirmEdit") }}</div>
+          <div class="ag-confirm-path">{{ agent.pendingEdit.path }}</div>
+          <div class="ag-confirm-thought">{{ agent.pendingEdit.description }}</div>
+          <div class="ag-edit-diff">
+            <DiffView :diff="agent.pendingEdit.diff" />
+          </div>
+          <div class="ag-confirm-actions">
+            <button class="emd-btn emd-btn-accent" @click="agent.resolveEdit(true)">
+              {{ t("ag.applyEdit") }}
+            </button>
+            <button class="emd-btn" @click="agent.resolveEdit(false)">
+              {{ t("ag.deny") }}
+            </button>
+          </div>
+        </div>
+        <div v-else-if="agent.pendingCommand" class="ag-confirm">
           <div class="ag-confirm-title">{{ t("ag.confirmRun") }}</div>
           <div class="ag-confirm-thought">{{ agent.pendingCommand.thought }}</div>
           <pre class="ag-confirm-cmd">{{ agent.pendingCommand.command }}</pre>
@@ -71,6 +88,7 @@
           </div>
         </div>
         <div v-else-if="agent.streamText" class="ag-bubble ag-bubble-ai md-body" v-html="render(agent.streamText)" />
+        <!-- 占位：pendingCommand 分支在上方，保持链完整 -->
         <div v-else class="ag-thinking">
           <Icon name="refresh-cw" :size="13" class="is-spin" /> {{ t("ag.thinking") }}
         </div>
@@ -110,6 +128,7 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from "vue";
 import Icon from "../common/Icon.vue";
+import DiffView from "../common/DiffView.vue";
 import { useAgentStore } from "../../stores/agent";
 import { renderMarkdown } from "../../lib/markdown/renderer";
 import { t } from "../../i18n";
@@ -169,7 +188,7 @@ function shortTime(iso: string): string {
 
 // 新消息 → 滚到底
 watch(
-  () => [agent.items.length, agent.streamText, agent.pendingCommand],
+  () => [agent.items.length, agent.streamText, agent.pendingCommand, agent.pendingEdit],
   () => {
     void nextTick(() => {
       listEl.value?.scrollTo({ top: listEl.value.scrollHeight });
@@ -346,6 +365,25 @@ onMounted(() => {
   white-space: pre-wrap;
   overflow-wrap: break-word;
   color: var(--text-muted);
+}
+
+/* 文件修改提案 diff 预览区 */
+.ag-edit-confirm {
+  max-height: 70vh;
+}
+.ag-confirm-path {
+  font-family: var(--font-mono);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+  padding: 4px 8px;
+}
+.ag-edit-diff {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  height: 320px;
+  overflow: hidden;
 }
 
 /* 命令确认门 */

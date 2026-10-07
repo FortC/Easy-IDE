@@ -203,6 +203,17 @@ export const useEditorStore = defineStore("editor", {
     removePath(path: string) {
       if (this.docs[path]) void this.closeTab(path);
     },
+    /** 外部写入（Agent 提案落盘等）后同步标签内容，不触发自动保存 */
+    reloadDoc(path: string, content: string) {
+      const d = this.docs[path];
+      if (!d) return;
+      d.content = content;
+      d.savedContent = content;
+      if (this.activePath === path) {
+        this.pendingJump = null;
+        this.openToken++;
+      }
+    },
     // ---- 会话持久化（P0 用 localStorage 按 workspace 隔离；P2 迁往 .easyide/） ----
     sessionKey(): string {
       const root = useVaultStore().root;

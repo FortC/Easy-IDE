@@ -7,7 +7,7 @@ use crate::index::model::NoteIndex;
 use crate::index::watcher;
 use crate::state::{AppState, VaultContext};
 use std::path::PathBuf;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 #[tauri::command]
 pub fn list_vaults(app: AppHandle) -> Vec<config::VaultEntry> {
@@ -63,20 +63,10 @@ pub(crate) fn open_vault_inner(
         *guard = None;
     }
 
-    // 索引：优先缓存，然后对磁盘校验做增量更新（缓存永远可被磁盘推翻）
-    let mut engine = IndexEngine::load_cache(&cache_path)
-        .or_else(|| IndexEngine::scan(&root).ok())
-        .ok_or_else(|| "索引扫描失败".to_string())?;
-    engine.refresh_against_disk(&root);
-    engine.save_cache(&cache_path);
-
-    // 代码索引：同样 缓存优先 + mtime 增量校验
+    // 索引：只同步加载缓存（快），磁盘增量校验放后台线程，避免大项目首开阻塞界面
+    let engine = IndexEngine::load_cache(&cache_path).unwrap_or_default();
     let code_cache_path = CodeIndexEngine::cache_path(&config::config_dir(&app), &root);
-    let mut code_engine = CodeIndexEngine::load_cache(&code_cache_path)
-        .or_else(|| CodeIndexEngine::scan(&root).ok())
-        .unwrap_or_default();
-    code_engine.refresh_against_disk(&root);
-    code_engine.save_cache(&code_cache_path);
+    let code_engine = CodeIndexEngine::load_cache(&code_cache_path).unwrap_or_default();
 
     // 文档中心项目级状态（.easyide/md-assistant.json；不存在则用默认值）
     let docs = crate::docs_hub::hub::load_state(&root);
@@ -104,18 +94,55 @@ pub(crate) fn open_vault_inner(
     settings.last_vault = Some(path.clone());
     config::save_settings(&app, &settings);
 
+    // 窗口标题带项目名
+    if let Some(w) = app.get_webview_window("main") {
+        let name = root
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.clone());
+        let _ = w.set_title(&format!("{} — EasyIDE", name));
+    }
+
+    // 后台：磁盘增量校验两个索引并落缓存（完成事件 workspace-indexed）
+    {
+        let bg_app = app.clone();
+        let bg_root = root.clone();
+        std::thread::spawn(move || {
+            let state = bg_app.state::<AppState>();
+            let mut guard = match state.vault.lock() {
+                Ok(g) => g,
+                Err(_) => return,
+            };
+            let Some(vc) = guard.as_mut() else { return };
+            if vc.root != bg_root {
+                return; // 已切换工作区，丢弃
+            }
+            vc.engine.refresh_against_disk(&bg_root);
+            vc.engine.save_cache(&vc.cache_path);
+            vc.code_engine.refresh_against_disk(&bg_root);
+            vc.code_engine.save_cache(&vc.code_cache_path);
+            drop(guard);
+            let _ = bg_app.emit("workspace-indexed", ());
+        });
+    }
+
     Ok(OpenVaultResult { root: path, notes })
 }
 
 #[tauri::command]
-pub fn close_vault(state: State<'_, AppState>) -> Result<(), String> {
-    let mut guard = state.vault.lock().map_err(|e| e.to_string())?;
-    if let Some(vc) = guard.as_mut() {
-        if let Some(w) = vc.watcher.take() {
-            w.stop();
+pub fn close_vault(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    {
+        let mut guard = state.vault.lock().map_err(|e| e.to_string())?;
+        if let Some(vc) = guard.as_mut() {
+            if let Some(w) = vc.watcher.take() {
+                w.stop();
+            }
         }
+        *guard = None;
     }
-    *guard = None;
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_title("EasyIDE");
+    }
     Ok(())
 }
 

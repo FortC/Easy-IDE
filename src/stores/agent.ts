@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { api } from "../ipc/tauri";
 import type { AgentMessage, SessionMeta } from "../types";
 import { useConsoleStore } from "./console";
+import { useEditorStore } from "./editor";
 import { useUiStore } from "./ui";
 import { useVaultStore } from "./vault";
 
@@ -29,6 +30,14 @@ export const useAgentStore = defineStore("agent", {
     pendingCommand: null as {
       command: string;
       thought: string;
+      resolve: (ok: boolean) => void;
+    } | null,
+    /** 等待用户批准的文件修改提案（write_file 确认门） */
+    pendingEdit: null as {
+      path: string;
+      description: string;
+      diff: string;
+      newContent: string;
       resolve: (ok: boolean) => void;
     } | null,
     _streamId: 0,
@@ -71,10 +80,12 @@ export const useAgentStore = defineStore("agent", {
 - search_text：{ "query": "关键字" } —— 全文搜索代码与文档
 - search_symbols：{ "query": "类/方法名" } —— 搜索符号（类/方法/函数/字段）
 - run_command：{ "command": "命令行" } —— 在项目根执行命令（mvn/java/npm/git 等，需用户确认）
+- write_file：{ "path": "相对路径", "content": "完整的新文件内容", "description": "一句话说明改动" } —— 修改文件（用户会看到 diff 预览并批准）
 
 规则：
 1. 一次只调用一个工具；工具结果会以「[工具结果]」开头的用户消息返回。
-2. run_command 会请求用户确认，被拒绝时换思路或询问用户。
+2. run_command 与 write_file 都会请求用户确认，被拒绝时换思路或询问用户。
+3. write_file 必须输出文件的完整内容（不是片段），基于 read_file 读到的原文做最小修改。
 3. 信息足够后，直接输出最终答复（普通 Markdown 文本，不带 JSON 块）。
 4. 回答用简体中文，简洁直接。${rulesBlock}`;
     },
@@ -176,9 +187,40 @@ export const useAgentStore = defineStore("agent", {
       this.pendingCommand?.resolve(ok);
       this.pendingCommand = null;
     },
+    /** 文件修改提案确认门：diff 预览 → 批准落盘 → 编辑器同步 */
+    async gateEdit(path: string, newContent: string, description: string): Promise<boolean> {
+      let diff = "";
+      try {
+        diff = await api.diffPreview(path, newContent);
+        if (!diff) diff = "（内容没有变化）";
+      } catch (e) {
+        diff = `（无法生成 diff 预览：${String(e)}）`;
+      }
+      const ok = await new Promise<boolean>((resolve) => {
+        this.pendingEdit = { path, description, diff, newContent, resolve };
+      });
+      if (ok) {
+        try {
+          await api.writeTextFile(path, newContent);
+          useEditorStore().reloadDoc(path, newContent);
+        } catch (e) {
+          window.setTimeout(() => {
+            this.error = `写入文件失败：${String(e)}`;
+          }, 0);
+          return false;
+        }
+      }
+      return ok;
+    },
+    resolveEdit(ok: boolean) {
+      const p = this.pendingEdit;
+      this.pendingEdit = null;
+      p?.resolve(ok);
+    },
     stop() {
       if (this._streamId) void api.agentCancel(this._streamId);
       if (this.pendingCommand) this.resolveCommand(false);
+      if (this.pendingEdit) this.resolveEdit(false);
     },
 
     // ---- 会话管理 ----

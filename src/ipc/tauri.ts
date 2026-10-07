@@ -107,6 +107,8 @@ export const api = {
   agentSessionDelete: (id: string) => invoke<void>("agent_session_delete", { id }),
   toolchainDetect: (kind: string, prefer?: string | null) =>
     invoke<ToolInfo>("toolchain_detect", { kind, prefer: prefer ?? null }),
+  diffPreview: (path: string, newContent: string) =>
+    invoke<string>("diff_preview", { path, newContent }),
   onAgentDelta: (cb: (e: { id: number; text: string }) => void): Promise<UnlistenFn> =>
     listen<{ id: number; text: string }>("agent-delta", (ev) => cb(ev.payload)),
   onAgentDone: (cb: (e: { id: number; text: string }) => void): Promise<UnlistenFn> =>
@@ -117,6 +119,8 @@ export const api = {
     listen<{ id: number; line: string; stderr: boolean }>("console-output", (ev) => cb(ev.payload)),
   onConsoleExit: (cb: (e: { id: number; code: number | null }) => void): Promise<UnlistenFn> =>
     listen<{ id: number; code: number | null }>("console-exit", (ev) => cb(ev.payload)),
+  onWorkspaceIndexed: (cb: () => void): Promise<UnlistenFn> =>
+    listen("workspace-indexed", () => cb()),
 
   // ---- P4 内置工具 ----
   gitStatus: () => invoke<GitStatus>("git_status"),

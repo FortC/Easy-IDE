@@ -3,6 +3,7 @@
 
 mod code_index;
 mod commands;
+mod difflib;
 mod config;
 mod docs_hub;
 mod gitops;
@@ -128,6 +129,7 @@ pub fn run() {
             commands::tools::pkg_baselines,
             commands::tools::pkg_build,
             commands::tools::pkg_history,
+            commands::agent::diff_preview,
         ])
         .run(tauri::generate_context!())
         .expect("EasyIDE 启动失败");

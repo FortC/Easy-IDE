@@ -12,6 +12,9 @@
       <span v-else-if="editor.isDirty" class="sb-item">{{ t("sb.unsaved") }}</span>
     </div>
     <div class="sb-right">
+      <span v-if="vault.gitBranch" class="sb-item sb-branch">
+        <Icon name="git-branch" :size="11" /> {{ vault.gitBranch }}
+      </span>
       <span v-if="backlinkCount > 0" class="sb-item">
         <Icon name="link" :size="12" /> {{ tf("sb.backlinks", { n: backlinkCount }) }}
       </span>
@@ -30,6 +33,7 @@ import Icon from "./Icon.vue";
 import { useEditorStore } from "../../stores/editor";
 import { useNotesIndexStore } from "../../stores/notesIndex";
 import { useSyncStore } from "../../stores/sync";
+import { useVaultStore } from "../../stores/vault";
 import { api } from "../../ipc/tauri";
 import { APP_VERSION, BUILD_ID } from "../../build";
 import { t, tf } from "../../i18n";
@@ -37,6 +41,7 @@ import { t, tf } from "../../i18n";
 const editor = useEditorStore();
 const indexStore = useNotesIndexStore();
 const sync = useSyncStore();
+const vault = useVaultStore();
 const backlinkCount = ref(0);
 
 const modeLabel = computed(
@@ -102,6 +107,9 @@ onMounted(async () => {
 .sb-sync-err {
   color: var(--text-error);
   cursor: help;
+}
+.sb-branch {
+  color: var(--interactive-accent);
 }
 .sb-ver {
   color: var(--text-faint);

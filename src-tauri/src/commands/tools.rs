@@ -61,7 +61,7 @@ pub fn maven_dep_tree(
 /// 一键排除：在 pom.xml 中给直接依赖插入 <exclusion>（先备份 pom.xml.bak）
 #[tauri::command]
 pub fn maven_apply_exclusion(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, AppState>,
     dep_group: String,
     dep_artifact: String,
@@ -122,7 +122,10 @@ pub fn pkg_build(
 }
 
 #[tauri::command]
-pub fn pkg_history(state: State<'_, AppState>) -> Result<Vec<pkg::PkgHistoryItem>, String> {
+pub fn pkg_history(
+    _app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<pkg::PkgHistoryItem>, String> {
     let guard = state.vault.lock().map_err(|e| e.to_string())?;
     let vc = guard.as_ref().ok_or("尚未打开工作区")?;
     Ok(pkg::history(&vc.root))

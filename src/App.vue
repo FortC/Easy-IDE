@@ -130,6 +130,15 @@ onMounted(async () => {
   // 系统打开文件：运行中右键/双击 → 事件转发
   api.onOsOpenFile((path) => openOsFile(path));
 
+  // 后台索引完成 → 同步笔记镜像（代码索引在命令层直读，无需镜像）
+  void api.onWorkspaceIndexed(async () => {
+    try {
+      notesIndex.setNotes(await api.getAllNotes());
+    } catch {
+      /* 索引不可用时静默 */
+    }
+  });
+
   // 自动恢复上次 vault（启动参数带文件时优先打开文件）
   const pending = await api.getPendingFile();
   if (pending) {
