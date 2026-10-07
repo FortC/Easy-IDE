@@ -1,5 +1,6 @@
 //! Vault 管理命令：打开/创建/关闭/移除知识库。
 
+use crate::code_index::engine::CodeIndexEngine;
 use crate::config;
 use crate::index::engine::IndexEngine;
 use crate::index::model::NoteIndex;
@@ -69,6 +70,14 @@ pub(crate) fn open_vault_inner(
     engine.refresh_against_disk(&root);
     engine.save_cache(&cache_path);
 
+    // 代码索引：同样 缓存优先 + mtime 增量校验
+    let code_cache_path = CodeIndexEngine::cache_path(&config::config_dir(&app), &root);
+    let mut code_engine = CodeIndexEngine::load_cache(&code_cache_path)
+        .or_else(|| CodeIndexEngine::scan(&root).ok())
+        .unwrap_or_default();
+    code_engine.refresh_against_disk(&root);
+    code_engine.save_cache(&code_cache_path);
+
     let watch = watcher::spawn(root.clone(), app.clone())
         .map_err(|e| format!("文件监听启动失败：{}", e))?;
 
@@ -79,6 +88,8 @@ pub(crate) fn open_vault_inner(
             root: root.clone(),
             engine,
             cache_path,
+            code_engine,
+            code_cache_path,
             watcher: Some(watch),
         });
     }

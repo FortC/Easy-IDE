@@ -192,7 +192,7 @@ async function fallbackOpen() {
 // ---- 全局快捷键 ----
 function onKeydown(e: KeyboardEvent) {
   const ctrl = e.ctrlKey || e.metaKey;
-  if (!ctrl || e.altKey) return;
+  if (!ctrl) return;
   const key = e.key.toLowerCase();
   if (key === "e") {
     e.preventDefault();
@@ -205,6 +205,18 @@ function onKeydown(e: KeyboardEvent) {
     // Ctrl+W：关闭当前标签
     e.preventDefault();
     if (editor.activePath) void editor.closeTab(editor.activePath);
+  } else if (key === "n" && e.altKey && !e.shiftKey) {
+    // Ctrl+Alt+N：新建笔记（Ctrl+N 让位给类搜索）
+    e.preventDefault();
+    ui.openNewNote();
+  } else if (key === "n" && e.altKey && e.shiftKey) {
+    // Ctrl+Shift+Alt+N：符号搜索（方法/字段）
+    e.preventDefault();
+    ui.openSearch("symbol");
+  } else if (key === "n" && !e.altKey) {
+    // Ctrl+N：类搜索
+    e.preventDefault();
+    ui.openSearch("class");
   } else if (key === "p" && !e.shiftKey) {
     e.preventDefault();
     ui.openSearch("file");

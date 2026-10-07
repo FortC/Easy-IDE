@@ -4,12 +4,16 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AppSettings,
   Backlink,
+  CodeFileHit,
+  CodeSymbol,
   FsEntry,
   McpServerConfig,
   NoteIndex,
   OpenVaultResult,
   ResolveResult,
+  SymbolHit,
   TagCount,
+  TextHit,
   VaultChangedPayload,
   VaultEntry,
 } from "../types";
@@ -48,6 +52,18 @@ export const api = {
     ),
   searchByTag: (tag: string) =>
     invoke<{ path: string; title: string; aliases: string[] }[]>("search_by_tag", { tag }),
+
+  // ---- 代码索引（检索中心四模式） ----
+  codeSymbolSearch: (query: string, kinds: string[] | null, limit: number | null = null) =>
+    invoke<SymbolHit[]>("code_symbol_search", { query, kinds, limit }),
+  codeFileSymbols: (path: string) => invoke<CodeSymbol[]>("code_file_symbols", { path }),
+  codeFileSearch: (query: string, limit: number | null = null) =>
+    invoke<CodeFileHit[]>("code_file_search", { query, limit }),
+  codeTextSearch: (
+    query: string,
+    caseSensitive: boolean | null = null,
+    maxResults: number | null = null,
+  ) => invoke<TextHit[]>("code_text_search", { query, caseSensitive, maxResults }),
 
   // ---- 索引 ----
   rebuildIndex: () => invoke<NoteIndex[]>("rebuild_index"),

@@ -1,5 +1,6 @@
 //! 全局状态：当前打开的 vault 上下文。
 
+use crate::code_index::engine::CodeIndexEngine;
 use crate::index::engine::IndexEngine;
 use crate::index::watcher::WatcherHandle;
 use std::path::{Component, Path, PathBuf};
@@ -9,6 +10,9 @@ pub struct VaultContext {
     pub root: PathBuf,
     pub engine: IndexEngine,
     pub cache_path: PathBuf,
+    /// 代码索引（符号/文件清单），与笔记引擎平行
+    pub code_engine: CodeIndexEngine,
+    pub code_cache_path: PathBuf,
     pub watcher: Option<WatcherHandle>,
 }
 

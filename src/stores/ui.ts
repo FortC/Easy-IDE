@@ -9,7 +9,7 @@ export const useUiStore = defineStore("ui", {
     rightVisible: true,
     rightTab: "outline" as RightTab,
     searchOpen: false,
-    searchMode: "file" as "file" | "content",
+    searchMode: "file" as "file" | "content" | "class" | "symbol",
     settingsOpen: false,
     /** 新建笔记对话框 */
     newNoteOpen: false,
@@ -30,7 +30,7 @@ export const useUiStore = defineStore("ui", {
       this.canvasPath = "";
       this.graphPath = "";
     },
-    openSearch(mode: "file" | "content") {
+    openSearch(mode: "file" | "content" | "class" | "symbol") {
       this.searchMode = mode;
       this.searchOpen = true;
     },

@@ -31,6 +31,8 @@ pub struct VaultChangedPayload {
     pub canvas_changed: Vec<String>,
     /// 变化的 graph 文件（相对路径）
     pub graph_changed: Vec<String>,
+    /// 变化的代码/文本文件（相对路径，供代码索引消费方使用）
+    pub code_changed: Vec<String>,
 }
 
 pub fn spawn(root: PathBuf, app: AppHandle) -> Result<WatcherHandle> {
@@ -78,6 +80,7 @@ fn handle_batch(app: &AppHandle, root: &std::path::Path, paths: HashSet<PathBuf>
         removed: vec![],
         canvas_changed: vec![],
         graph_changed: vec![],
+        code_changed: vec![],
     };
     {
         let state = app.state::<AppState>();
@@ -98,8 +101,9 @@ fn handle_batch(app: &AppHandle, root: &std::path::Path, paths: HashSet<PathBuf>
             let is_md = rel.to_lowercase().ends_with(".md");
             let is_canvas = rel.to_lowercase().ends_with(".canvas");
             let is_graph = rel.to_lowercase().ends_with(".graph");
-            if !is_md && !is_canvas && !is_graph {
-                continue; // 资源文件变化不影响索引
+            let is_text = vc.code_engine.is_trackable(&rel);
+            if !is_md && !is_canvas && !is_graph && !is_text {
+                continue; // 二进制资源变化不影响索引
             }
             if is_canvas {
                 payload.canvas_changed.push(rel);
@@ -109,13 +113,24 @@ fn handle_batch(app: &AppHandle, root: &std::path::Path, paths: HashSet<PathBuf>
                 payload.graph_changed.push(rel);
                 continue;
             }
-            match vc.engine.update_file(root, &rel) {
-                Some(note) => payload.updated.push(note),
-                None => payload.removed.push(rel),
+            if is_md {
+                match vc.engine.update_file(root, &rel) {
+                    Some(note) => payload.updated.push(note),
+                    None => payload.removed.push(rel),
+                }
+            } else {
+                // 代码/文本文件：只归代码索引管（笔记引擎不得吞非 md 文件）
+                payload.code_changed.push(rel);
             }
         }
         if !payload.updated.is_empty() || !payload.removed.is_empty() {
             vc.engine.save_cache(&vc.cache_path);
+        }
+        for rel in &payload.code_changed {
+            vc.code_engine.update_file(root, rel);
+        }
+        if !payload.code_changed.is_empty() {
+            vc.code_engine.save_cache(&vc.code_cache_path);
         }
     }
     let _ = app.emit("vault-changed", payload);

@@ -1,6 +1,7 @@
 //! EasyIDE 入口：命令注册 + 自定义资源协议。
 //! emdasset://vault/<percent-encoded 相对路径> —— 只允许读当前 vault 内文件。
 
+mod code_index;
 mod commands;
 mod config;
 mod index;
@@ -90,6 +91,10 @@ pub fn run() {
             commands::fsops::duplicate_file,
             commands::fsops::delete_files,
             commands::ai::ai_chat,
+            commands::code_index::code_symbol_search,
+            commands::code_index::code_file_symbols,
+            commands::code_index::code_file_search,
+            commands::code_index::code_text_search,
         ])
         .run(tauri::generate_context!())
         .expect("EasyIDE 启动失败");

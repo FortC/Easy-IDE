@@ -143,6 +143,34 @@ export interface VaultChangedPayload {
   removed: string[];
   canvas_changed: string[];
   graph_changed: string[];
+  /** 变化的代码/文本文件（P1：代码索引增量） */
+  code_changed: string[];
+}
+
+/** 代码符号（P1 代码索引） */
+export interface CodeSymbol {
+  /** class | interface | enum | record | method | function | field */
+  kind: string;
+  name: string;
+  /** 1 基行号 */
+  line: number;
+  container: string | null;
+}
+
+export interface SymbolHit extends CodeSymbol {
+  path: string;
+}
+
+export interface CodeFileHit {
+  path: string;
+  name: string;
+}
+
+export interface TextHit {
+  path: string;
+  /** 1 基行号 */
+  line_no: number;
+  text: string;
 }
 
 /** .graph 图谱文件（JSON）模型 */

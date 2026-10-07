@@ -4,18 +4,13 @@
     <div class="emd-modal sp-modal">
       <div class="sp-tabs">
         <button
+          v-for="m in modeTabs"
+          :key="m.key"
           class="sp-tab"
-          :class="{ 'is-active': mode === 'file' }"
-          @click="switchMode('file')"
+          :class="{ 'is-active': mode === m.key }"
+          @click="switchMode(m.key)"
         >
-          {{ t("sp.file") }}
-        </button>
-        <button
-          class="sp-tab"
-          :class="{ 'is-active': mode === 'content' }"
-          @click="switchMode('content')"
-        >
-          {{ t("sp.content") }}
+          {{ m.label }}
         </button>
       </div>
       <input
@@ -23,13 +18,14 @@
         v-model="query"
         type="text"
         class="sp-input"
-        :placeholder="mode === 'file' ? t('sp.filePh') : t('sp.contentPh')"
+        :placeholder="placeholder"
         @keydown.down.prevent="move(1)"
         @keydown.up.prevent="move(-1)"
         @keydown.enter="chooseSelected"
         @keydown.esc="close"
       />
       <div class="sp-results">
+        <!-- 文件（Ctrl+P） -->
         <template v-if="mode === 'file'">
           <div
             v-for="(h, i) in fileHits"
@@ -37,36 +33,55 @@
             class="sp-item"
             :class="{ 'is-selected': i === selected }"
             @mousemove="selected = i"
-            @click="openFile(h.path)"
+            @click="openAt(h.path)"
           >
-            <Icon name="file-text" :size="14" />
-            <span class="sp-title">{{ h.title }}</span>
+            <Icon :name="iconForFile(h.path)" :size="14" />
+            <span class="sp-title">{{ h.name }}</span>
             <span class="sp-sub">{{ h.path }}</span>
           </div>
         </template>
+
+        <!-- 类 / 符号（Ctrl+N / Ctrl+Shift+Alt+N） -->
+        <template v-else-if="mode === 'class' || mode === 'symbol'">
+          <div
+            v-for="(h, i) in symbolHits"
+            :key="h.path + h.name + h.line"
+            class="sp-item"
+            :class="{ 'is-selected': i === selected }"
+            @mousemove="selected = i"
+            @click="openAt(h.path, h.line)"
+          >
+            <span class="sp-kind" :class="'k-' + h.kind">{{ kindLabel(h.kind) }}</span>
+            <span class="sp-title">{{ h.name }}</span>
+            <span class="sp-sub">
+              {{ h.container ? h.container + " · " : "" }}{{ h.path }}:{{ h.line }}
+            </span>
+          </div>
+        </template>
+
+        <!-- 全文（Ctrl+Shift+F） -->
         <template v-else>
           <div
-            v-for="(h, i) in contentHits"
+            v-for="(h, i) in textHits"
             :key="h.path + h.line_no"
             class="sp-item sp-item-content"
             :class="{ 'is-selected': i === selected }"
             @mousemove="selected = i"
-            @click="openContent(h)"
+            @click="openAt(h.path, h.line_no)"
           >
             <div class="sp-line1">
-              <Icon name="file-text" :size="14" />
-              <span class="sp-title">{{ h.title }}</span>
+              <Icon :name="iconForFile(h.path)" :size="14" />
+              <span class="sp-title">{{ fileNameOf(h.path) }}</span>
               <span class="sp-ln">:{{ h.line_no }}</span>
             </div>
             <div class="sp-text">{{ h.text }}</div>
           </div>
         </template>
-        <div v-if="searched && allHits.length === 0" class="sp-empty">
+
+        <div v-if="searched && hitCount === 0" class="sp-empty">
           {{ t("sp.none") }}
         </div>
-        <div v-if="!searched" class="sp-empty">
-          {{ mode === "file" ? t("sp.fileHint") : t("sp.contentHint") }}
-        </div>
+        <div v-if="!searched" class="sp-empty">{{ hint }}</div>
       </div>
     </div>
   </div>
@@ -74,29 +89,83 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import Icon from "../common/Icon.vue";
 import { useUiStore } from "../../stores/ui";
 import { useEditorStore } from "../../stores/editor";
+import { iconForFile } from "../../lib/filetypes";
 import { t } from "../../i18n";
 import { api } from "../../ipc/tauri";
+import type { CodeFileHit, SymbolHit, TextHit } from "../../types";
+
+type PaletteMode = "file" | "class" | "symbol" | "content";
 
 const ui = useUiStore();
 const editor = useEditorStore();
 const query = ref("");
-const mode = ref<"file" | "content">("file");
+const mode = ref<PaletteMode>("file");
 const selected = ref(0);
 const searched = ref(false);
 const inputRef = ref<HTMLInputElement>();
 
-const fileHits = ref<{ path: string; title: string; aliases: string[] }[]>([]);
-const contentHits = ref<
-  { path: string; title: string; line_no: number; text: string }[]
->([]);
-
-const allHits = ref<{ path: string }[]>([]);
+const fileHits = ref<CodeFileHit[]>([]);
+const symbolHits = ref<SymbolHit[]>([]);
+const textHits = ref<TextHit[]>([]);
 
 let timer: ReturnType<typeof setTimeout> | null = null;
+let seq = 0; // 防乱序：慢请求返回时丢弃
+
+const modeTabs = computed(() => [
+  { key: "file" as const, label: t("sp.file") },
+  { key: "class" as const, label: t("sp.class") },
+  { key: "symbol" as const, label: t("sp.symbol") },
+  { key: "content" as const, label: t("sp.content") },
+]);
+
+const hitCount = computed(() =>
+  mode.value === "file"
+    ? fileHits.value.length
+    : mode.value === "content"
+      ? textHits.value.length
+      : symbolHits.value.length,
+);
+
+const placeholder = computed(() =>
+  mode.value === "file"
+    ? t("sp.filePh")
+    : mode.value === "class"
+      ? t("sp.classPh")
+      : mode.value === "symbol"
+        ? t("sp.symbolPh")
+        : t("sp.contentPh"),
+);
+
+const hint = computed(() =>
+  mode.value === "file"
+    ? t("sp.fileHint")
+    : mode.value === "class"
+      ? t("sp.classHint")
+      : mode.value === "symbol"
+        ? t("sp.symbolHint")
+        : t("sp.contentHint"),
+);
+
+function kindLabel(kind: string): string {
+  const map: Record<string, string> = {
+    class: "C",
+    interface: "I",
+    enum: "E",
+    record: "R",
+    method: "M",
+    function: "F",
+    field: "P",
+  };
+  return map[kind] ?? kind.slice(0, 1).toUpperCase();
+}
+
+function fileNameOf(path: string): string {
+  return path.split("/").pop() || path;
+}
 
 watch(query, (q) => {
   if (timer) clearTimeout(timer);
@@ -107,34 +176,43 @@ watch(mode, () => {
   query.value = "";
   searched.value = false;
   fileHits.value = [];
-  contentHits.value = [];
+  symbolHits.value = [];
+  textHits.value = [];
 });
 
 async function doSearch(q: string) {
   selected.value = 0;
+  const token = ++seq;
   if (!q.trim()) {
     searched.value = false;
     fileHits.value = [];
-    contentHits.value = [];
+    symbolHits.value = [];
+    textHits.value = [];
     return;
   }
   if (mode.value === "file") {
-    fileHits.value = await api.searchFiles(q);
-    allHits.value = fileHits.value;
+    const hits = await api.codeFileSearch(q, 50);
+    if (token === seq) fileHits.value = hits;
+  } else if (mode.value === "class") {
+    const hits = await api.codeSymbolSearch(q, ["class", "interface", "enum", "record"], 50);
+    if (token === seq) symbolHits.value = hits;
+  } else if (mode.value === "symbol") {
+    const hits = await api.codeSymbolSearch(q, null, 50);
+    if (token === seq) symbolHits.value = hits;
   } else {
-    contentHits.value = await api.searchContent(q);
-    allHits.value = contentHits.value;
+    const hits = await api.codeTextSearch(q, false, 300);
+    if (token === seq) textHits.value = hits;
   }
-  searched.value = true;
+  if (token === seq) searched.value = true;
 }
 
-function switchMode(m: "file" | "content") {
+function switchMode(m: PaletteMode) {
   mode.value = m;
   nextTick(() => inputRef.value?.focus());
 }
 
 function move(delta: number) {
-  const n = allHits.value.length;
+  const n = hitCount.value;
   if (!n) return;
   selected.value = (selected.value + delta + n) % n;
 }
@@ -142,21 +220,20 @@ function move(delta: number) {
 async function chooseSelected() {
   if (mode.value === "file") {
     const h = fileHits.value[selected.value];
-    if (h) await openFile(h.path);
+    if (h) await openAt(h.path);
+  } else if (mode.value === "content") {
+    const h = textHits.value[selected.value];
+    if (h) await openAt(h.path, h.line_no);
   } else {
-    const h = contentHits.value[selected.value];
-    if (h) await openContent(h);
+    const h = symbolHits.value[selected.value];
+    if (h) await openAt(h.path, h.line);
   }
 }
 
-async function openFile(path: string) {
+/** 打开文件并定位（line 为 1 基；editor 跳转用 0 基） */
+async function openAt(path: string, line?: number) {
   close();
-  await editor.openNote(path);
-}
-
-async function openContent(h: { path: string; line_no: number }) {
-  close();
-  await editor.openNote(h.path, { line: h.line_no - 1 });
+  await editor.openNote(path, line !== undefined ? { line: line - 1 } : null);
 }
 
 function close() {
@@ -225,6 +302,7 @@ onMounted(() => {
 }
 .sp-title {
   color: var(--text-normal);
+  white-space: nowrap;
 }
 .sp-sub,
 .sp-ln {
@@ -244,10 +322,37 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: var(--font-mono);
 }
 .sp-empty {
   color: var(--text-faint);
   text-align: center;
   padding: 24px 8px;
+}
+/* 符号类型徽标（IDEA 风格字母角标） */
+.sp-kind {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-s);
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+}
+.sp-kind.k-class,
+.sp-kind.k-interface,
+.sp-kind.k-enum,
+.sp-kind.k-record {
+  background: var(--interactive-accent-hover-alt);
+  color: var(--interactive-accent);
+}
+.sp-kind.k-method,
+.sp-kind.k-function {
+  background: var(--tag-background);
+  color: var(--tag-color);
 }
 </style>
