@@ -15,7 +15,6 @@
       </div>
       <div class="st-body">
         <transition name="emd-pane" mode="out-in">
-        <!-- 通用 -->
         <div v-if="tab === 'general'" key="general" class="st-pane">
           <div class="st-row">
             <label>{{ t("st.language") }}</label>
@@ -99,8 +98,7 @@
             {{ t("st.ctxTip") }}</p>
         </div>
 
-        <!-- 外观（CSS 片段） -->
-        <div v-if="tab === 'appearance'" key="appearance" class="st-pane">
+        <div v-else-if="tab === 'appearance'" key="appearance" class="st-pane">
           <p class="st-tip">
             {{ t("st.snippetDir") }}<code>{{ settings.snippetsDir }}</code
             >{{ t("st.snippetTip2") }}
@@ -125,23 +123,19 @@
           </div>
         </div>
 
-        <!-- 模板管理 -->
-        <div v-if="tab === 'templates'" key="templates" class="st-pane">
+        <div v-else-if="tab === 'templates'" key="templates" class="st-pane">
           <TemplatePane />
         </div>
 
-        <!-- AI -->
-        <div v-if="tab === 'ai'" key="ai" class="st-pane">
+        <div v-else-if="tab === 'ai'" key="ai" class="st-pane">
           <AiPane />
         </div>
 
-        <!-- MCP 同步 -->
-        <div v-if="tab === 'mcp'" key="mcp" class="st-pane">
+        <div v-else-if="tab === 'mcp'" key="mcp" class="st-pane">
           <McpSettings />
         </div>
 
-        <!-- 关于 -->
-        <div v-if="tab === 'about'" key="about" class="st-pane">
+        <div v-else-if="tab === 'about'" key="about" class="st-pane">
           <AboutPane />
         </div>
         </transition>
