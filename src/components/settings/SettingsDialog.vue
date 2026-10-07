@@ -130,6 +130,9 @@
         <div v-else-if="tab === 'toolchain'" key="toolchain" class="st-pane">
           <ToolchainPane />
         </div>
+        <div v-else-if="tab === 'shortcuts'" key="shortcuts" class="st-pane">
+          <ShortcutsPane />
+        </div>
         <div v-else-if="tab === 'ai'" key="ai" class="st-pane">
           <AiPane />
         </div>
@@ -155,6 +158,7 @@ import McpSettings from "./McpSettings.vue";
 import TemplatePane from "./TemplatePane.vue";
 import AiPane from "./AiPane.vue";
 import ToolchainPane from "./ToolchainPane.vue";
+import ShortcutsPane from "./ShortcutsPane.vue";
 import AboutPane from "./AboutPane.vue";
 import { useUiStore } from "../../stores/ui";
 import { useSettingsStore } from "../../stores/settings";
@@ -185,6 +189,7 @@ const tabs = computed(() => [
   { key: "templates", label: t("st.templates") },
   { key: "ai", label: t("st.ai") },
   { key: "toolchain", label: t("st.toolchain") },
+  { key: "shortcuts", label: t("st.shortcuts") },
   { key: "appearance", label: t("st.appearance") },
   { key: "mcp", label: t("st.mcp") },
   { key: "about", label: t("st.about") },
