@@ -22,63 +22,66 @@ pub fn get_pending_file(state: State<'_, AppState>) -> Option<String> {
 /// 1) 在已知 vault 列表中找包含它的库（最长路径前缀）；
 /// 2) 找不到则把它所在文件夹作为新库打开；
 /// 3) 返回 vault 上下文 + 文件相对路径，前端直接展示。
+/// 打开工作区是重 IO（缓存加载/监听启动），放后台线程避免冻结窗口。
 #[tauri::command]
-pub fn open_path_from_os(
+pub async fn open_path_from_os(
     app: AppHandle,
-    state: State<'_, AppState>,
     path: String,
 ) -> Result<OpenNoteResult, String> {
-    let abs = std::path::PathBuf::from(&path);
-    if !abs.is_absolute() {
-        return Err("必须使用绝对路径".into());
-    }
-    let abs_norm = abs.to_string_lossy().replace('\\', "/");
-    let abs_norm = abs_norm.trim_end_matches('/').to_string();
-    let lower = abs_norm.to_lowercase();
+    tauri::async_runtime::spawn_blocking(move || {
+        let abs = std::path::PathBuf::from(&path);
+        if !abs.is_absolute() {
+            return Err("必须使用绝对路径".into());
+        }
+        let abs_norm = abs.to_string_lossy().replace('\\', "/");
+        let abs_norm = abs_norm.trim_end_matches('/').to_string();
+        let lower = abs_norm.to_lowercase();
 
-    // 找包含该文件的 vault（最长前缀优先）
-    let vaults = crate::config::load_vaults(&app);
-    let mut best: Option<String> = None;
-    for v in &vaults {
-        let vp = v.path.replace('\\', "/");
-        let vp = vp.trim_end_matches('/').to_string();
-        let vpl = vp.to_lowercase();
-        if lower.starts_with(&format!("{}/", vpl)) {
-            match &best {
-                Some(b) if b.len() >= vp.len() => {}
-                _ => best = Some(vp),
+        // 找包含该文件的 vault（最长前缀优先）
+        let vaults = crate::config::load_vaults(&app);
+        let mut best: Option<String> = None;
+        for v in &vaults {
+            let vp = v.path.replace('\\', "/");
+            let vp = vp.trim_end_matches('/').to_string();
+            let vpl = vp.to_lowercase();
+            if lower.starts_with(&format!("{}/", vpl)) {
+                match &best {
+                    Some(b) if b.len() >= vp.len() => {}
+                    _ => best = Some(vp),
+                }
             }
         }
-    }
 
-    let root_str = match best {
-        Some(v) => v,
-        None => {
-            // 不属于任何库：以文件所在文件夹为库
-            abs_norm
-                .rsplit_once('/')
-                .map(|(dir, _)| dir.to_string())
-                .unwrap_or_else(|| abs_norm.clone())
-        }
-    };
+        let root_str = match best {
+            Some(v) => v,
+            None => {
+                // 不属于任何库：以文件所在文件夹为库
+                abs_norm
+                    .rsplit_once('/')
+                    .map(|(dir, _)| dir.to_string())
+                    .unwrap_or_else(|| abs_norm.clone())
+            }
+        };
 
-    let rel = abs_norm
-        .strip_prefix(&root_str)
-        .unwrap_or("")
-        .trim_start_matches('/')
-        .to_string();
+        let rel = abs_norm
+            .strip_prefix(&root_str)
+            .unwrap_or("")
+            .trim_start_matches('/')
+            .to_string();
 
-    let res = super::vault::open_vault_inner(
-        app,
-        state.clone(),
-        std::path::PathBuf::from(root_str.clone()),
-        root_str,
-    )?;
-    Ok(OpenNoteResult {
-        root: res.root,
-        notes: res.notes,
-        rel,
+        let res = super::vault::open_vault_inner(
+            app,
+            std::path::PathBuf::from(root_str.clone()),
+            root_str,
+        )?;
+        Ok(OpenNoteResult {
+            root: res.root,
+            notes: res.notes,
+            rel,
+        })
     })
+    .await
+    .map_err(|e| format!("后台任务异常：{}", e))?
 }
 
 // ---- Windows 右键菜单注册（绿色版也可用，写 HKCU 无需管理员） ----
@@ -147,48 +150,47 @@ fn remove_context_reg() -> Result<(), String> {
 
 
 
-/// 临时文件打开：拷贝到内置临时目录后以该目录为 vault 打开
+/// 临时文件打开：拷贝到内置临时目录后以该目录为 vault 打开（拷贝 + 打开放后台线程）
 #[tauri::command]
-pub fn open_as_temp(
+pub async fn open_as_temp(
     app: AppHandle,
-    state: State<'_, AppState>,
     path: String,
 ) -> Result<OpenNoteResult, String> {
-    let src = std::path::PathBuf::from(&path);
-    if !src.is_absolute() || !src.exists() {
-        return Err("文件不存在".into());
-    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let src = std::path::PathBuf::from(&path);
+        if !src.is_absolute() || !src.exists() {
+            return Err("文件不存在".into());
+        }
 
-    // 临时目录：app_config_dir/temp/
-    let temp_dir = crate::config::config_dir(&app).join("temp");
-    std::fs::create_dir_all(&temp_dir).map_err(|e| format!("创建临时目录失败：{}", e))?;
+        // 临时目录：app_config_dir/temp/
+        let temp_dir = crate::config::config_dir(&app).join("temp");
+        std::fs::create_dir_all(&temp_dir).map_err(|e| format!("创建临时目录失败：{}", e))?;
 
-    // 拷贝文件
-    let name = src.file_name().unwrap_or_default().to_string_lossy().to_string();
-    let dst = temp_dir.join(&name);
-    std::fs::copy(&src, &dst).map_err(|e| format!("拷贝失败：{}", e))?;
+        // 拷贝文件
+        let name = src.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let dst = temp_dir.join(&name);
+        std::fs::copy(&src, &dst).map_err(|e| format!("拷贝失败：{}", e))?;
 
-    // 以临时目录为 vault 打开
-    let root_str = temp_dir.to_string_lossy().to_string();
-    let res = super::vault::open_vault_inner(
-        app,
-        state.clone(),
-        std::path::PathBuf::from(temp_dir),
-        root_str,
-    )?;
-    Ok(OpenNoteResult {
-        root: res.root,
-        notes: res.notes,
-        rel: name,
+        // 以临时目录为 vault 打开
+        let root_str = temp_dir.to_string_lossy().to_string();
+        let res = super::vault::open_vault_inner(app, temp_dir, root_str)?;
+        Ok(OpenNoteResult {
+            root: res.root,
+            notes: res.notes,
+            rel: name,
+        })
     })
+    .await
+    .map_err(|e| format!("后台任务异常：{}", e))?
 }
 
 
-/// 打开 Windows 设置 → 默认应用（让用户设 EasyIDE 为 .md 默认打开方式）
+/// 打开 Windows 设置 → 默认应用（让用户设EasyIDE 为 .md 默认打开方式）
+/// 走 CREATE_NO_WINDOW：否则 `cmd /C start` 会闪一个黑窗。
 #[tauri::command]
 pub fn open_default_apps_settings() -> Result<(), String> {
-    std::process::Command::new("cmd")
-        .args(["/C", "start", "ms-settings:defaultapps"])
+    crate::toolchain::hidden_new("cmd")
+        .args(["/C", "start", "", "ms-settings:defaultapps"])
         .spawn()
         .map_err(|e| format!("Open settings failed: {}", e))?;
     Ok(())

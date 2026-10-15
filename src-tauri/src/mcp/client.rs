@@ -39,6 +39,8 @@ impl McpClient {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
+        // MCP server 也走隐式启动，避免弹控制台窗
+        crate::toolchain::hidden(&mut cmd);
         let mut child = cmd
             .spawn()
             .with_context(|| format!("无法启动 MCP 服务：{}", command))?;

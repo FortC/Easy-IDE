@@ -57,15 +57,23 @@ fn with_vault_mut<T>(
     }
 }
 
-/// 扫描项目 md 文档（分类链已计算）
+/// 扫描项目 md 文档（分类链已计算；全库扫描放后台线程，避免大库冻结窗口）
 #[tauri::command]
-pub fn docs_scan(state: State<'_, AppState>) -> Result<DocsScanResult, String> {
-    let guard = state.vault.lock().map_err(|e| e.to_string())?;
-    let vc = guard.as_ref().ok_or("尚未打开工作区")?;
+pub async fn docs_scan(state: State<'_, AppState>) -> Result<DocsScanResult, String> {
+    let (root, docs) = {
+        let guard = state.vault.lock().map_err(|e| e.to_string())?;
+        let vc = guard.as_ref().ok_or("尚未打开工作区")?;
+        (vc.root.clone(), vc.docs.clone())
+    };
+    let categories = hub::category_vocab(&docs);
+    let state_view = view_of(&docs);
+    let entries = tauri::async_runtime::spawn_blocking(move || hub::scan(&root, &docs))
+        .await
+        .map_err(|e| format!("后台任务异常：{}", e))?;
     Ok(DocsScanResult {
-        entries: hub::scan(&vc.root, &vc.docs),
-        categories: hub::category_vocab(&vc.docs),
-        state: view_of(&vc.docs),
+        entries,
+        categories,
+        state: state_view,
     })
 }
 
@@ -106,14 +114,22 @@ pub fn docs_unignore(state: State<'_, AppState>, path: Option<String>) -> Result
 }
 
 /// ZIP 打包：entries 为 (相对路径, 包内显示名)。返回 zip 绝对路径。
+/// 压缩是重 IO，放后台线程避免冻结窗口。
 #[tauri::command]
-pub fn docs_zip(
+pub async fn docs_zip(
     state: State<'_, AppState>,
     entries: Vec<(String, String)>,
 ) -> Result<String, String> {
-    let guard = state.vault.lock().map_err(|e| e.to_string())?;
-    let vc = guard.as_ref().ok_or("尚未打开工作区")?;
-    hub::zip_docs(&vc.root, &entries)
+    let root = {
+        let guard = state.vault.lock().map_err(|e| e.to_string())?;
+        guard
+            .as_ref()
+            .map(|vc| vc.root.clone())
+            .ok_or_else(|| "尚未打开工作区".to_string())?
+    };
+    tauri::async_runtime::spawn_blocking(move || hub::zip_docs(&root, &entries))
+        .await
+        .map_err(|e| format!("后台任务异常：{}", e))?
 }
 
 /// 生成/更新 AGENTS.md（标记块合并），返回相对路径

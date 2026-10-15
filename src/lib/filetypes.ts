@@ -211,5 +211,5 @@ export function iconForFile(path: string): string {
 /** 编译产物/依赖目录：文件树中置灰显示 */
 export const BUILD_DIRS = new Set([
   "target", "build", "dist", "out", "node_modules", "vendor", ".gradle", ".cache",
-  "cmake-build-debug", "cmake-build-release", "__pycache__",
+  "cmake-build-debug", "cmake-build-release", "__pycache__", ".git", ".svn",
 ]);

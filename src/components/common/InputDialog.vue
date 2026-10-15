@@ -1,27 +1,28 @@
 <template>
   <transition name="emd-fade">
-    <div class="emd-modal-bg" @click.self="cancel">
-      <div class="emd-modal input-dialog">
-        <div class="id-title">{{ title }}</div>
+    <BaseModal :title="title" width="sm" :show-close="false" @close="cancel">
+      <div class="id-body">
         <input
           ref="inputRef"
           v-model="value"
           type="text"
           :placeholder="placeholder"
           @keydown.enter="confirm"
-          @keydown.esc="cancel"
         />
-        <div class="id-actions">
-          <button class="emd-btn" @click="cancel">{{ t("c.cancel") }}</button>
-          <button class="emd-btn emd-btn-accent" @click="confirm">{{ t("c.confirm") }}</button>
-        </div>
       </div>
-    </div>
+      <template #footer>
+        <button class="emd-btn" @click="cancel">{{ t("c.cancel") }}</button>
+        <button class="emd-btn emd-btn-accent" :disabled="!value.trim()" @click="confirm">
+          {{ t("c.confirm") }}
+        </button>
+      </template>
+    </BaseModal>
   </transition>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { nextTick, onMounted, ref } from "vue";
+import BaseModal from "./BaseModal.vue";
 import { t } from "../../i18n";
 
 const props = withDefaults(
@@ -34,8 +35,10 @@ const value = ref(props.initial);
 const inputRef = ref<HTMLInputElement>();
 
 onMounted(() => {
-  inputRef.value?.focus();
-  inputRef.value?.select();
+  void nextTick(() => {
+    inputRef.value?.focus();
+    inputRef.value?.select();
+  });
 });
 
 function confirm() {
@@ -47,19 +50,7 @@ function cancel() {
 </script>
 
 <style scoped>
-.input-dialog {
-  width: 400px;
-  padding: 16px;
-  gap: 12px;
-}
-.id-title {
-  font-size: var(--font-ui-medium);
-  margin-bottom: 12px;
-}
-.id-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 12px;
+.id-body {
+  padding: var(--space-5);
 }
 </style>

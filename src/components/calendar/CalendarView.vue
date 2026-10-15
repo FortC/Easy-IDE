@@ -420,7 +420,7 @@ function isJot(path: string): boolean {
   return (
     path.startsWith("jots/") ||
     path.startsWith("daily/") ||
-    path.startsWith((settings.data.daily_dir || "jots") + "/") ||
+    path.startsWith((settings.data.jot_dir || "jots") + "/") ||
     path.includes("小计-")
   );
 }

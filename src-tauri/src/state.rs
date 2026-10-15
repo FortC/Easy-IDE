@@ -22,17 +22,23 @@ pub struct VaultContext {
 impl VaultContext {
     /// 相对路径 → 绝对路径（拒绝 `..`、绝对路径注入，保证不出 vault）
     pub fn safe_join(&self, rel: &str) -> anyhow::Result<PathBuf> {
-        let rel_path = Path::new(rel);
-        if rel_path.is_absolute() {
+        safe_join(&self.root, rel)
+    }
+}
+
+/// 相对路径 → 绝对路径（拒绝 `..`、绝对路径注入，保证不出 root）。
+/// 自由函数版本：后台线程只需带 root 快照即可做同等路径校验。
+pub fn safe_join(root: &Path, rel: &str) -> anyhow::Result<PathBuf> {
+    let rel_path = Path::new(rel);
+    if rel_path.is_absolute() {
+        anyhow::bail!("非法路径：{:?}", rel);
+    }
+    for c in rel_path.components() {
+        if matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)) {
             anyhow::bail!("非法路径：{:?}", rel);
         }
-        for c in rel_path.components() {
-            if matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)) {
-                anyhow::bail!("非法路径：{:?}", rel);
-            }
-        }
-        Ok(self.root.join(rel_path))
     }
+    Ok(root.join(rel_path))
 }
 
 #[derive(Default)]

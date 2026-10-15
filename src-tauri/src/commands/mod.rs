@@ -1,11 +1,13 @@
 pub mod agent;
 pub mod ai;
+pub mod build_cmd;
 pub mod code_index;
 pub mod docs;
 pub mod fsops;
 pub mod index_cmd;
 pub mod mcp_cmd;
 pub mod os_open;
+pub mod recipe_cmd;
 pub mod search;
 pub mod settings;
 pub mod terminal;

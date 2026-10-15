@@ -182,11 +182,21 @@
       >
         <SourceEditor v-if="editor.isOpen" />
         <div v-else class="ep-empty">
-          <Icon name="file-text" :size="40" />
-          <p>{{ t("ed.emptyHint") }}</p>
-          <button class="emd-btn emd-btn-accent" @click="ui.openNewNote()">
-            <Icon name="file-plus" :size="13" /> {{ t("ed.newNote") }}
-          </button>
+          <Icon :name="ui.devModule ? 'code' : 'file-text'" :size="40" />
+          <p>{{ ui.devModule ? t("ed.emptyHintCode") : t("ed.emptyHint") }}</p>
+          <div class="ep-empty-actions">
+            <template v-if="ui.devModule">
+              <button class="emd-btn emd-btn-accent" @click="ui.openSearch('file')">
+                <Icon name="file-text" :size="13" /> {{ t("ed.openFile") }}
+              </button>
+              <button class="emd-btn" @click="openNewFileDialog">
+                <Icon name="file-plus" :size="13" /> {{ t("ed.newFile") }}
+              </button>
+            </template>
+            <button v-else class="emd-btn emd-btn-accent" @click="ui.openNewNote()">
+              <Icon name="file-plus" :size="13" /> {{ t("ed.newNote") }}
+            </button>
+          </div>
         </div>
       </div>
       <div
@@ -198,9 +208,19 @@
       />
       <div v-if="isMdFile && editor.mode !== 'source'" class="ep-preview">
         <PreviewView v-if="editor.isOpen" @jump="onJump" />
-        <div v-else class="ep-empty"><Icon name="book" :size="40" /></div>
+        <div v-else class="ep-empty">
+          <Icon name="book" :size="40" />
+          <p>{{ t("ed.previewEmpty") }}</p>
+        </div>
       </div>
     </div>
+
+    <InputDialog
+      v-if="newFileDialog"
+      :title="tf('fe.newFileIn', { dir: t('fe.rootDir') })"
+      @confirm="confirmNewFile"
+      @cancel="newFileDialog = false"
+    />
   </div>
 </template>
 
@@ -208,6 +228,7 @@
 import { computed, nextTick, ref, watch } from "vue";
 import Icon from "../common/Icon.vue";
 import DropdownMenu, { type DropItem } from "../common/DropdownMenu.vue";
+import InputDialog from "../common/InputDialog.vue";
 import SourceEditor from "./SourceEditor.vue";
 import PreviewView from "./PreviewView.vue";
 import EditorTabs from "./EditorTabs.vue";
@@ -221,7 +242,7 @@ import { exportHtml, exportMarkdown, exportPdf } from "../../lib/export";
 import { addTagToContent } from "../../lib/tags";
 import { applyTemplateVars, listTemplates } from "../../lib/template";
 import { isMarkdown } from "../../lib/filetypes";
-import { useAiStore } from "../../stores/ai";
+import { useAgentStore } from "../../stores/agent";
 import { t, tf } from "../../i18n";
 
 const editor = useEditorStore();
@@ -229,7 +250,7 @@ const ui = useUiStore();
 const settings = useSettingsStore();
 const vault = useVaultStore();
 const indexStore = useNotesIndexStore();
-const aiStore = useAiStore();
+const agentStore = useAgentStore();
 const menuOpen = ref(false);
 const moreBtn = ref<HTMLElement>();
 const bodyEl = ref<HTMLElement>();
@@ -308,9 +329,9 @@ function addTag() {
   if (!tg) return;
   quickAddTag(tg);
 }
-function quickAddTag(tag: string) {
+async function quickAddTag(tag: string) {
   if (!editor.isOpen) return;
-  editor.setContent(addTagToContent(editor.content, tag));
+  editor.setContent(await addTagToContent(editor.content, tag));
   tagOpen.value = false;
 }
 
@@ -350,6 +371,29 @@ const title = computed(() => {
   const name = editor.activePath.split("/").pop() || "";
   return isMdFile.value ? name.replace(/\.md$/i, "") : name;
 });
+
+// ---- 空状态「新建文件」（代码语境） ----
+const newFileDialog = ref(false);
+function openNewFileDialog() {
+  newFileDialog.value = true;
+}
+async function confirmNewFile(name: string) {
+  newFileDialog.value = false;
+  const clean = name.trim().replace(/^\/+|\/+$/g, "");
+  if (!clean) return;
+  try {
+    if (await api.pathExists(clean)) {
+      alert(`${t("fe.exists")}: ${clean}`);
+      return;
+    }
+    await api.writeTextFile(clean, "");
+    await vault.refreshParents(clean);
+    await editor.openNote(clean);
+    ui.view = "editor";
+  } catch (e) {
+    alert(String(e));
+  }
+}
 
 const modes = computed(() => [
   { key: "source" as const, label: t("ed.src"), title: t("ed.mSource") },
@@ -411,14 +455,17 @@ const menuItems = computed<DropItem[]>(() => {
 
 async function onMenuSelect(key: string) {
   menuOpen.value = false;
+  // AI 入口统一导向右侧 AI 面板（不再弹独立对话框）
   if (key === "aisum") {
     if (!editor.isOpen) return;
-    aiStore.openWith("");
-    void aiStore.run("summarize");
+    agentStore.openPanel();
+    void agentStore.run(
+      "请为当前打开的文件做要点总结（不超过 8 条），指出关键设计与潜在问题。",
+    );
     return;
   }
   if (key === "aiask") {
-    aiStore.openWith("");
+    agentStore.openPanel();
     return;
   }
   if (["md", "html", "pdf"].includes(key)) {
@@ -453,9 +500,9 @@ function startSplitDrag(e: PointerEvent) {
   const onUp = () => {
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
-    document.body.classList.remove("is-col-resizing");
+    document.body.classList.remove("is-resizing", "is-col-resizing");
   };
-  document.body.classList.add("is-col-resizing");
+  document.body.classList.add("is-resizing", "is-col-resizing");
   window.addEventListener("pointermove", onMove);
   window.addEventListener("pointerup", onUp);
 }
@@ -768,11 +815,12 @@ async function onJump(target: { path?: string; anchor?: string; line?: number })
   bottom: 0;
   width: 1px;
   background: var(--background-modifier-border);
-  transition: background var(--anim-fast), width var(--anim-fast);
+  /* 只过渡 background：改 width 会触发 reflow（红线2）。加粗用 inset box-shadow 表达。 */
+  transition: background var(--anim-hover), box-shadow var(--anim-hover);
 }
 .ep-splitter:hover::after {
   background: var(--interactive-accent);
-  width: 2px;
+  box-shadow: 0 0 0 1px var(--interactive-accent);
 }
 .ep-empty {
   height: 100%;
@@ -782,5 +830,9 @@ async function onJump(target: { path?: string; anchor?: string; line?: number })
   justify-content: center;
   gap: 14px;
   color: var(--text-faint);
+}
+.ep-empty-actions {
+  display: flex;
+  gap: 8px;
 }
 </style>

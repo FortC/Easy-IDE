@@ -6,9 +6,10 @@
 
 ## 核心理念
 
-- **极致快速**：Tauri 2 壳 + CodeMirror 6 内核，冷启动 <1.2s，安装包 <15MB，不引入 LSP 服务器等重资产。
-- **基本功能健全**：多标签编辑、多语言语法高亮、文件/类名/方法名/全文四级检索、控制台、Git 感知。
-- **AI 优先执行**：内置 AI Agent（流式对话 + 工具调用），预设「运行 / Debug 日志 / 构建 / 拉依赖 / 修复报错」等场景，命令执行带确认门。
+- **极致快速**：Tauri 2 壳 + CodeMirror 6 内核，冷启动 <1.2s，安装包 <15MB，**首屏主包 243.0 KB**，不引入 LSP 服务器等重资产。
+- **双语境架构**：代码开发与笔记小计两套语境自动识别，导航/右栏/底部面板按语境切换——打开 `.java` 时不会看到「反链/属性」这类笔记专属面板。
+- **基本功能健全**：多标签编辑、多语言语法高亮、文件/类名/方法名/全文四级检索、底部输出/终端/问题面板、Git/SVN 感知。
+- **AI 优先执行**：内置 AI Agent（流式对话 + 工具调用可视化），**选中代码即挂载上下文、Ctrl+I 唤起**，预设「运行 / Debug 日志 / 构建 / 拉依赖 / 修复报错」等场景，命令执行带就地确认门。
 - **保留笔记基因**：EasyMD 的文档中心、双链、小计、日历全部保留，按项目维度组织（`.easyide/`），并复刻 idea-md-assistant 的项目 MD 扫描/分类/归档能力。
 - **本地优先**：磁盘文件是唯一真相源，AI Key 只存本地，无账号无云依赖。
 
@@ -21,7 +22,7 @@
 | P2 | 项目文档中心（MD 扫描/五级分类链/归档/ZIP/AGENTS.md/AI 分类与快捷操作，知识库项目维度 .easyide/） | ✅ 已完成 |
 | P3 | AI Agent 中枢（流式/多轮/工具调用循环 + 命令确认门）+ 工具链配置（JDK/Maven/Node/Git 自动探测）+ 控制台 + 7 个预设场景（运行/日志/构建/依赖/修复/解读/测试） | ✅ 已完成 |
 | P4 | Git 集成（状态着色/分支面板/diff/AI 提交）、Maven 依赖树/冲突/一键排除（Maven Helper 等价）、增量包（tag/commit 基线 + war/fat-jar/classes 模板 + 历史） | ✅ 已完成 |
-| P5 | 快捷键速查页、CHANGELOG、发布构建（NSIS 安装包 2.84MB） | ✅ 已完成 |
+| P5 | 快捷键速查页、CHANGELOG、发布构建（NSIS 安装包 3.30MB） | ✅ 已完成 |
 
 ## 技术栈
 
@@ -31,7 +32,7 @@
 
 ## 安装 / Install
 
-- **安装包**（推荐）：运行 `src-tauri/target/release/bundle/nsis/EasyIDE_0.1.0_x64-setup.exe`（中文向导、免管理员、当前用户安装，自动注册 `.md` 右键菜单）。
+- **安装包**（推荐）：运行 `src-tauri/target/release/bundle/nsis/EasyIDE_0.2.6_x64-setup.exe`（中文向导、免管理员、当前用户安装，自动注册 `.md` 右键菜单）。
 - **便携版**：直接运行 `src-tauri/target/release/EasyIDE.exe`，单文件绿色免安装。
 - 或从 [Releases](https://github.com/FortC/Easy-IDE/releases) 下载最新版本。
 
@@ -39,7 +40,7 @@
 
 1. 首次启动 → 「打开项目文件夹」选择一个本地代码项目（Maven 项目体验最完整）。
 2. 设置（Ctrl+,）→ AI：填写 OpenAI 兼容或 Anthropic 的地址与 Key；设置 → 工具链：点「全部自动检测」。
-3. 日常入口：Ctrl+P 文件 / Ctrl+N 类 / Ctrl+Shift+F 全文检索；Ribbon「文档」管理项目 MD；RunBar 一键让 AI 运行/构建/修复；底部控制台切「终端」用交互式 shell。
+3. 日常入口：Ctrl+P 文件 / Ctrl+N 类 / Ctrl+Shift+F 全文检索；左侧导航「文档中心」管理项目 MD；选中代码按 **Ctrl+I** 直接问 AI；AI 面板顶部 chips 一键运行/构建/修复；底部面板切「终端」用交互式 shell、「问题」看编译诊断。
 
 ## 开发
 
@@ -59,11 +60,15 @@ cargo check          # Rust 侧检查（在 src-tauri/ 下）
 
 | 指标 | 预算 | 实测 |
 |---|---|---|
+| 首屏主包 JS | < 500KB | **243.0 KB**（gzip 86.2 KB） |
+| 首屏 CSS | ≤ 80KB | **71.10 KB** |
 | 10k 文件全量索引 | < 3s | **240 ms** |
 | 索引缓存写入 / 加载 | — | 11.5 ms / 8.8 ms |
 | 符号搜索 | < 30ms | **3.4 ms** |
 | 全文搜索（10k 文件并行） | < 300ms | **37 ms** |
-| 安装包 | < 15MB | **2.84 MB** |
+| 安装包 | < 15MB | **3.30 MB** |
+
+冷启动分段耗时可在 DevTools Console 查看（`localStorage.easyide-boot-breakdown`），含「导航→脚本」「导航→挂载」「Rust→挂载」三段。
 
 （基准复跑：`cargo test --release perf_index_10k -- --ignored --nocapture`；前端就绪耗时见 设置 → 关于）
 

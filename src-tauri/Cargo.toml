@@ -1,6 +1,6 @@
 [package]
 name = "easyide"
-version = "0.1.0"
+version = "0.2.6"
 description = "EasyIDE - 轻量极速的 AI 代码 IDE"
 authors = ["clb"]
 edition = "2021"
@@ -13,7 +13,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# tray-icon：系统托盘（图标取 default_window_icon，免 PNG 解码，无需 image-png）
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
@@ -22,6 +23,9 @@ serde_yaml = "0.9"
 notify = "8"
 walkdir = "2"
 regex = "1"
+# B4：pom.xml 离线结构解析。只读、无生命周期、纯 Rust，增量约 300KB。
+# 不用 regex 抠 XML 是因为 CDATA、注释、嵌套 <modules>、${属性} 插值都会解析错。
+roxmltree = "0.20"
 trash = "5"
 sha2 = "0.10"
 chrono = { version = "0.4", features = ["serde"] }

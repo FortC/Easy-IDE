@@ -65,9 +65,10 @@ pub fn search_files(state: State<'_, AppState>, query: String) -> Result<Vec<Fil
     })
 }
 
-/// 全文搜索：逐文件扫描包含关键字的行（跳过超大文件，限制结果数）
+/// 全文搜索：逐文件扫描包含关键字的行（跳过超大文件，限制结果数）。
+/// 全量读盘扫描放后台线程，避免大库搜索冻结窗口。
 #[tauri::command]
-pub fn search_content(
+pub async fn search_content(
     state: State<'_, AppState>,
     query: String,
 ) -> Result<Vec<ContentHit>, String> {
@@ -75,37 +76,57 @@ pub fn search_content(
     if q.is_empty() {
         return Ok(vec![]);
     }
-    with_engine(&state, |engine, root| {
-        let mut hits: Vec<ContentHit> = Vec::new();
-        'outer: for note in engine.notes.values() {
-            let full = root.join(&note.path);
-            let Ok(meta) = std::fs::metadata(&full) else { continue };
-            if meta.len() > 2 * 1024 * 1024 {
-                continue;
-            }
-            let Ok(text) = std::fs::read_to_string(&full) else { continue };
-            for (i, line) in text.lines().enumerate() {
-                if line.to_lowercase().contains(&q) {
-                    let trimmed = line.trim();
-                    let text_out: String = if trimmed.chars().count() > 200 {
-                        trimmed.chars().take(200).collect()
-                    } else {
-                        trimmed.to_string()
-                    };
-                    hits.push(ContentHit {
-                        path: note.path.clone(),
-                        title: note.title.clone(),
-                        line_no: i + 1,
-                        text: text_out,
-                    });
-                    if hits.len() >= 300 {
-                        break 'outer;
-                    }
+    // 锁内取候选快照（路径+标题），锁外逐文件扫描（锁不跨 await 持有）
+    let (root, notes) = {
+        let guard = state.vault.lock().map_err(|e| e.to_string())?;
+        match guard.as_ref() {
+            Some(vc) => (
+                vc.root.clone(),
+                vc.engine
+                    .notes
+                    .values()
+                    .map(|n| (n.path.clone(), n.title.clone()))
+                    .collect::<Vec<_>>(),
+            ),
+            None => return Err("尚未打开知识库".into()),
+        }
+    };
+    tauri::async_runtime::spawn_blocking(move || scan_content(&root, &notes, &q))
+        .await
+        .map_err(|e| format!("后台任务异常：{}", e))
+}
+
+/// 逐文件扫描命中行（后台线程执行）：跳过超大文件，命中数封顶 300
+fn scan_content(root: &std::path::Path, notes: &[(String, String)], q: &str) -> Vec<ContentHit> {
+    let mut hits: Vec<ContentHit> = Vec::new();
+    'outer: for (path, title) in notes {
+        let full = root.join(path);
+        let Ok(meta) = std::fs::metadata(&full) else { continue };
+        if meta.len() > 2 * 1024 * 1024 {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&full) else { continue };
+        for (i, line) in text.lines().enumerate() {
+            if line.to_lowercase().contains(q) {
+                let trimmed = line.trim();
+                let text_out: String = if trimmed.chars().count() > 200 {
+                    trimmed.chars().take(200).collect()
+                } else {
+                    trimmed.to_string()
+                };
+                hits.push(ContentHit {
+                    path: path.clone(),
+                    title: title.clone(),
+                    line_no: i + 1,
+                    text: text_out,
+                });
+                if hits.len() >= 300 {
+                    break 'outer;
                 }
             }
         }
-        Ok(hits)
-    })
+    }
+    hits
 }
 
 /// 标签搜索：精确标签或其子级标签下的全部笔记

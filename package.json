@@ -1,14 +1,15 @@
 {
   "name": "easyide",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.6",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "verify": "npm run build && node scripts/check-bundle.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
-    "icon": "node scripts/make_icon.mjs && tauri icon src-tauri/app-icon.png"
+    "icon": "node scripts/clean_logo.mjs brand/master_src.png brand/master_clean.png src-tauri/app-icon.png && tauri icon src-tauri/app-icon.png"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.0",

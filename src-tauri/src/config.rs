@@ -34,6 +34,10 @@ pub struct AppSettings {
     pub language: String,
     /// 全局字体缩放：xs | sm | md | lg | xl
     pub font_scale: String,
+    /// 动效强度：full | reduced | off（与系统 prefers-reduced-motion 双保险）
+    pub motion_level: String,
+    /// 代码配色主题（"auto" 跟随界面；其余值见前端 lib/editorThemes.ts）
+    pub code_theme: String,
     /// AI 日志模板
     pub log_template: String,
     /// AI 日志模板文件夹（vault 内相对路径，放 md/txt/skill 规则文件）
@@ -48,8 +52,23 @@ pub struct AppSettings {
     pub node_path: String,
     /// git.exe 路径
     pub git_path: String,
+    /// svn.exe 路径（空 = 自动探测）
+    #[serde(default)]
+    pub svn_path: String,
+    /// 小计（jot）存放目录（vault 内相对路径；空 = "jots"）
+    #[serde(default)]
+    pub jot_dir: String,
     /// 自定义快捷键：action id → 键序列（如 "Ctrl+Shift+P"）；空 = 使用默认
     pub keybindings: std::collections::HashMap<String, String>,
+    /// B7-B 档：是否启用本地模型端点（Ollama / llama.cpp 等 OpenAI 兼容服务）
+    #[serde(default)]
+    pub local_llm_enabled: bool,
+    /// B7-B 档：本地端点 baseURL，如 http://localhost:11434/v1（默认即 Ollama）
+    #[serde(default)]
+    pub local_llm_base: String,
+    /// B7-B 档：模型名，如 qwen2.5-coder:7b（留空时后端探测）
+    #[serde(default)]
+    pub local_llm_model: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -114,6 +133,8 @@ impl Default for AppSettings {
             ai_model: "gpt-4o-mini".into(),
             language: "zh".into(),
             font_scale: "sm".into(),
+            motion_level: "full".into(),
+            code_theme: "auto".into(),
             log_template: String::new(),
             log_templates_dir: "log-templates".into(),
             log_template_name: String::new(),
@@ -121,7 +142,26 @@ impl Default for AppSettings {
             maven_path: String::new(),
             node_path: String::new(),
             git_path: String::new(),
+            svn_path: String::new(),
+            jot_dir: String::new(),
             keybindings: std::collections::HashMap::new(),
+            // 本地模型默认关闭：用户没装 Ollama 时开着只会让请求全部失败
+            local_llm_enabled: false,
+            local_llm_base: "http://localhost:11434/v1".into(),
+            local_llm_model: String::new(),
+        }
+    }
+}
+
+impl AppSettings {
+    /// 小计目录（空 = 默认 "jots"）。当前 Rust 侧尚未消费，供后续/对等逻辑取值兜底
+    #[allow(dead_code)]
+    pub fn jot_dir_or_default(&self) -> &str {
+        let d = self.jot_dir.trim();
+        if d.is_empty() {
+            "jots"
+        } else {
+            d
         }
     }
 }
@@ -206,4 +246,37 @@ pub fn touch_vault(app: &AppHandle, path: &str) {
     }
     vaults.sort_by(|a, b| b.last_opened.cmp(&a.last_opened));
     save_vaults(app, &vaults);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settings_round_trip_keeps_svn_path_and_jot_dir() {
+        // 旧配置（缺 svn_path / jot_dir）能反序列化，新字段取默认
+        let old = r#"{"theme":"light","git_path":"C:/git/git.exe"}"#;
+        let s: AppSettings = serde_json::from_str(old).unwrap();
+        assert_eq!(s.theme, "light");
+        assert_eq!(s.git_path, "C:/git/git.exe");
+        assert_eq!(s.svn_path, "");
+        assert_eq!(s.jot_dir, "");
+        assert_eq!(s.jot_dir_or_default(), "jots");
+        // 序列化 → 反序列化无损往返
+        let json = serde_json::to_string(&s).unwrap();
+        let s2: AppSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(s2.git_path, "C:/git/git.exe");
+        assert_eq!(s2.svn_path, "");
+        assert_eq!(s2.jot_dir, "");
+
+        let mut s3 = AppSettings::default();
+        s3.svn_path = "C:/svn/svn.exe".into();
+        s3.jot_dir = "my-jots".into();
+        assert_eq!(s3.jot_dir_or_default(), "my-jots");
+        let json3 = serde_json::to_string(&s3).unwrap();
+        assert!(json3.contains("svn_path"));
+        let s4: AppSettings = serde_json::from_str(&json3).unwrap();
+        assert_eq!(s4.svn_path, "C:/svn/svn.exe");
+        assert_eq!(s4.jot_dir, "my-jots");
+    }
 }

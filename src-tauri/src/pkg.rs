@@ -1,7 +1,7 @@
-//! 增量包：git 基线 diff → 源码/资源变更 → target/classes 产物映射 → 按模板（classes/war/fat-jar）打 zip。
+//! 增量包：vcs 基线 diff（git/svn 统一分发）→ 源码/资源变更 → target/classes 产物映射 → 按模板（classes/war/fat-jar）打 zip。
 //! 历史记录存 .easyide/packages.json。
 
-use crate::gitops;
+use crate::vcs;
 use std::path::Path;
 use tauri::AppHandle;
 
@@ -22,6 +22,9 @@ pub struct PkgHistoryItem {
     pub template: String,
     pub zip: String,
     pub count: usize,
+    /// 基线所用版本控制："git" | "svn"（旧历史记录缺省为空）
+    #[serde(default)]
+    pub vcs: String,
 }
 
 /// 变更路径分类结果
@@ -97,7 +100,12 @@ fn template_prefix(template: &str) -> &'static str {
 
 /// 构建增量包
 pub fn build(app: &AppHandle, root: &Path, baseline: &str, template: &str) -> Result<PkgResult, String> {
-    let changed = gitops::changed_since(app, root, baseline)?;
+    // 基线 diff 走 vcs 统一分发：git = diff --name-status <baseline> HEAD；svn = diff --summarize -r <baseline>:HEAD
+    let kind = vcs::resolve_kind(root, None);
+    if kind == vcs::VcsKind::None {
+        return Err("未检测到版本控制（.git / .svn），无法计算基线变更".into());
+    }
+    let changed = vcs::changed_since(app, root, Some(kind), baseline)?;
     if changed.is_empty() {
         return Err("基线之后没有任何变更".into());
     }
@@ -186,7 +194,7 @@ pub fn build(app: &AppHandle, root: &Path, baseline: &str, template: &str) -> Re
         entries,
         skipped,
     };
-    append_history(root, &result, baseline, template);
+    append_history(root, &result, baseline, template, kind.as_str());
     Ok(result)
 }
 
@@ -194,7 +202,7 @@ fn history_path(root: &Path) -> std::path::PathBuf {
     root.join(".easyide").join("packages.json")
 }
 
-fn append_history(root: &Path, result: &PkgResult, baseline: &str, template: &str) {
+fn append_history(root: &Path, result: &PkgResult, baseline: &str, template: &str, vcs: &str) {
     let path = history_path(root);
     let mut list: Vec<PkgHistoryItem> = std::fs::read_to_string(&path)
         .ok()
@@ -206,16 +214,24 @@ fn append_history(root: &Path, result: &PkgResult, baseline: &str, template: &st
         template: template.to_string(),
         zip: result.zip_path.clone(),
         count: result.entries.len(),
+        vcs: vcs.to_string(),
     });
     if list.len() > 30 {
         let drain = list.len() - 30;
         list.drain(0..drain);
     }
     if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            eprintln!("[pkg] 创建增量包历史目录失败：{}", e);
+        }
     }
-    if let Ok(json) = serde_json::to_string_pretty(&list) {
-        let _ = std::fs::write(&path, json);
+    match serde_json::to_string_pretty(&list) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(&path, json) {
+                eprintln!("[pkg] 写入增量包历史失败：{}", e);
+            }
+        }
+        Err(e) => eprintln!("[pkg] 增量包历史序列化失败：{}", e),
     }
 }
 

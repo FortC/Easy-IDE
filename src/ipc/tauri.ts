@@ -5,6 +5,12 @@ import type {
   AgentMessage,
   AppSettings,
   Backlink,
+  BuildTarget,
+  ProjectModel,
+  Recipe,
+  RecipeInput,
+  RecipeRunResponse,
+  RecipeStatus,
   SessionDoc,
   SessionMeta,
   ToolInfo,
@@ -17,15 +23,19 @@ import type {
   DocsScanResult,
   DocsSettingsPatch,
   FsEntry,
-  GitStatus,
+  VcsStatus,
   McpServerConfig,
   ModuleTree,
   NoteIndex,
   OpenVaultResult,
+  LocalLlmProbe,
+  PomDep,
+  PomModuleNode,
   PkgBaselines,
   PkgHistoryItem,
   PkgResult,
   ResolveResult,
+  SavedActionWire,
   SymbolHit,
   TagCount,
   TextHit,
@@ -99,8 +109,12 @@ export const api = {
   agentChatStream: (messages: AgentMessage[], system: string) =>
     invoke<number>("agent_chat_stream", { messages, system }),
   agentCancel: (id: number) => invoke<void>("agent_cancel", { id }),
-  agentRunCommand: (command: string) => invoke<number>("agent_run_command", { command }),
+  // B1：回传 { id, pid } —— pid 让 UI 启动后立刻能显示「已启动 PID xxxx」
+  agentRunCommand: (command: string) =>
+    invoke<{ id: number; pid: number }>("agent_run_command", { command }),
   agentKillCommand: (id: number) => invoke<void>("agent_kill_command", { id }),
+  agentListRunning: () =>
+    invoke<{ id: number; pid: number; alive: boolean }[]>("agent_list_running"),
   agentSessionsList: () => invoke<SessionMeta[]>("agent_sessions_list"),
   agentSessionLoad: (id: string) => invoke<SessionDoc>("agent_session_load", { id }),
   agentSessionSave: (session: SessionDoc) => invoke<void>("agent_session_save", { session }),
@@ -109,6 +123,35 @@ export const api = {
     invoke<ToolInfo>("toolchain_detect", { kind, prefer: prefer ?? null }),
   diffPreview: (path: string, newContent: string) =>
     invoke<string>("diff_preview", { path, newContent }),
+
+  // ---- V2：项目模型与命令配方 ----
+  projectDetect: () => invoke<ProjectModel>("project_detect"),
+  recipeList: () => invoke<Recipe[]>("recipe_list"),
+  recipeGet: (action: string, variant?: string) =>
+    invoke<Recipe | null>("recipe_get", { action, variant: variant ?? "" }),
+  recipeSave: (input: RecipeInput) => invoke<Recipe>("recipe_save", { input }),
+  recipeDelete: (action: string, variant?: string) =>
+    invoke<void>("recipe_delete", { action, variant: variant ?? "" }),
+  recipeCheck: () => invoke<RecipeStatus[]>("recipe_check"),
+  recipeRun: (action: string, variant?: string) =>
+    invoke<RecipeRunResponse>("recipe_run", { action, variant: variant ?? "" }),
+  recipeTrust: (action: string, variant: string, trusted: boolean) =>
+    invoke<void>("recipe_trust", { action, variant, trusted }),
+  recipeRecordUsage: (action: string, variant: string, code: number | null, durationMs: number) =>
+    invoke<void>("recipe_record_usage", { action, variant, code, durationMs }),
+
+  // ---- 保存的动作按钮（B5.2，存 .easyide/actions.json）----
+  savedActionsList: () => invoke<SavedActionWire[]>("saved_actions_list"),
+  savedActionsSave: (actions: SavedActionWire[]) =>
+    invoke<void>("saved_actions_save", { actions }),
+  savedActionRun: (command: string, background: boolean) =>
+    invoke<{ id: number; pid: number }>("saved_action_run", { command, background }),
+
+  // ---- 文件树右键构建命令（按项目结构探测 Maven / Gradle / npm）----
+  buildDetect: (path: string | null) =>
+    invoke<BuildTarget[]>("build_detect", { path: path ?? null }),
+  buildGoalRun: (args: { kind: string; dir: string; goal: string; custom: boolean }) =>
+    invoke<{ id: number; pid: number; command: string }>("build_goal_run", { args }),
   onAgentDelta: (cb: (e: { id: number; text: string }) => void): Promise<UnlistenFn> =>
     listen<{ id: number; text: string }>("agent-delta", (ev) => cb(ev.payload)),
   onAgentDone: (cb: (e: { id: number; text: string }) => void): Promise<UnlistenFn> =>
@@ -136,13 +179,25 @@ export const api = {
     listen<{ id: number; code: number | null }>("terminal-exit", (ev) => cb(ev.payload)),
 
   // ---- P4 内置工具 ----
-  gitStatus: () => invoke<GitStatus>("git_status"),
-  gitDiff: (path: string) => invoke<string>("git_diff", { path }),
-  gitLog: (limit?: number) => invoke<CommitInfo[]>("git_log", { limit: limit ?? null }),
-  gitTags: () => invoke<string[]>("git_tags"),
-  mavenDepTree: () => invoke<ModuleTree[]>("maven_dep_tree"),
-  mavenApplyExclusion: (depGroup: string, depArtifact: string, exclGroup: string, exclArtifact: string) =>
-    invoke<string>("maven_apply_exclusion", { depGroup, depArtifact, exclGroup, exclArtifact }),
+  vcsStatus: (kind?: string | null) => invoke<VcsStatus>("vcs_status", { kind: kind ?? null }),
+  vcsDiff: (path: string, kind?: string | null) =>
+    invoke<string>("vcs_diff", { kind: kind ?? null, path }),
+  vcsLog: (limit?: number, kind?: string | null) =>
+    invoke<CommitInfo[]>("vcs_log", { kind: kind ?? null, limit: limit ?? null }),
+  vcsTags: (kind?: string | null) => invoke<string[]>("vcs_tags", { kind: kind ?? null }),
+  toolchainRefresh: () => invoke<void>("toolchain_refresh"),
+  /** B7-B 档：探测本地模型端点，返回可达性与可用模型列表 */
+  localLlmProbe: (base?: string | null) =>
+    invoke<LocalLlmProbe>("local_llm_probe", { base: base ?? null }),
+  mavenDepTree: (module?: string | null) =>
+    invoke<ModuleTree[]>("maven_dep_tree", { module: module ?? null }),
+  /** B4：离线模块结构树（沿 <modules> 递归解析 pom.xml，不依赖 mvn） */
+  mavenModuleTree: () => invoke<PomModuleNode[]>("maven_module_tree"),
+  /** B4：离线模块依赖明细（版本可由 dependencyManagement 补全） */
+  mavenModuleDeps: (module?: string | null) =>
+    invoke<PomDep[]>("maven_module_deps", { module: module ?? null }),
+  mavenApplyExclusion: (depGroup: string, depArtifact: string, exclGroup: string, exclArtifact: string, module?: string | null) =>
+    invoke<string>("maven_apply_exclusion", { depGroup, depArtifact, exclGroup, exclArtifact, module: module ?? null }),
   pkgBaselines: () => invoke<PkgBaselines>("pkg_baselines"),
   pkgBuild: (baseline: string, template: string) =>
     invoke<PkgResult>("pkg_build", { baseline, template }),

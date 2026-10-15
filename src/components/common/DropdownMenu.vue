@@ -9,14 +9,16 @@
       />
     </transition>
     <transition name="emd-pop">
-      <div v-if="open" ref="menuEl" class="emd-dropdown" :style="pos" @pointerdown.stop>
+      <div v-if="open" ref="menuEl" class="emd-dropdown" :style="pos" role="menu" @pointerdown.stop>
         <div v-if="title" class="emd-dd-title">{{ title }}</div>
         <template v-for="item in items" :key="item.key">
           <div v-if="item.separator" class="emd-dd-sep" />
           <button
             v-else
             class="emd-dd-item"
-            :class="{ 'is-danger': item.danger }"
+            :class="{ 'is-danger': item.danger, 'is-cursor': cursorKey === item.key }"
+            role="menuitem"
+            @mouseenter="cursorKey = item.key"
             @click="emit('select', item.key)"
           >
             <Icon v-if="item.icon" :name="item.icon" :size="14" />
@@ -62,6 +64,25 @@ const emit = defineEmits<{ select: [key: string]; close: [] }>();
 
 const menuEl = ref<HTMLElement>();
 const pos = ref({ left: "-9999px", top: "-9999px" });
+/** 键盘高亮项（null = 未用键盘，仍按 hover 走） */
+const cursorKey = ref<string | null>(null);
+let opener: HTMLElement | null = null;
+
+/** 可用菜单项（跳过分隔线） */
+function usableKeys(): string[] {
+  return props.items.filter((i) => !i.separator).map((i) => i.key);
+}
+
+function moveCursor(dir: 1 | -1) {
+  const keys = usableKeys();
+  if (!keys.length) return;
+  const i = cursorKey.value ? keys.indexOf(cursorKey.value) : -1;
+  const next = keys[(i + dir + keys.length) % keys.length];
+  cursorKey.value = next;
+  requestAnimationFrame(() => {
+    menuEl.value?.querySelector<HTMLElement>(`.emd-dd-item.is-cursor`)?.scrollIntoView({ block: "nearest" });
+  });
+}
 
 /** 视口内自动翻转定位 */
 function place() {
@@ -93,18 +114,43 @@ watch(
   () => props.open,
   async (v) => {
     if (v) {
+      opener = document.activeElement as HTMLElement | null;
       await nextTick();
       place();
       window.addEventListener("keydown", onKey);
     } else {
+      cursorKey.value = null;
       window.removeEventListener("keydown", onKey);
+      // 关闭后把焦点还给触发元素
+      opener?.focus?.();
+      opener = null;
     }
   },
 );
-onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKey);
+  opener?.focus?.();
+});
 
 function onKey(e: KeyboardEvent) {
-  if (e.key === "Escape") emit("close");
+  if (e.key === "Escape") {
+    emit("close");
+    return;
+  }
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    moveCursor(1);
+    return;
+  }
+  if (e.key === "ArrowUp") {
+    e.preventDefault();
+    moveCursor(-1);
+    return;
+  }
+  if (e.key === "Enter" && cursorKey.value) {
+    e.preventDefault();
+    emit("select", cursorKey.value);
+  }
 }
 </script>
 
@@ -112,11 +158,11 @@ function onKey(e: KeyboardEvent) {
 .emd-dd-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 1900;
+  z-index: var(--z-dropdown);
 }
 .emd-dropdown {
   position: fixed;
-  z-index: 2000;
+  z-index: var(--z-dropdown);
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
@@ -140,7 +186,7 @@ function onKey(e: KeyboardEvent) {
 .emd-dd-item {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-3);
   width: 100%;
   padding: 6px 10px;
   border-radius: var(--radius-s);
@@ -148,9 +194,19 @@ function onKey(e: KeyboardEvent) {
   font-size: var(--font-ui-size);
   text-align: left;
   white-space: nowrap;
+  transition: background var(--anim-hover), transform var(--anim-press);
 }
-.emd-dd-item:hover {
+.emd-dd-item:hover,
+.emd-dd-item.is-cursor {
   background: var(--background-modifier-hover);
+}
+.emd-dd-item:active {
+  transform: scale(0.98);
+}
+@media (hover: none) {
+  .emd-dd-item:active {
+    transform: none;
+  }
 }
 .emd-dd-item.is-danger {
   color: var(--text-error);

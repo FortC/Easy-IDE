@@ -3,7 +3,7 @@
     <!-- 左侧图谱列表（仿笔记文件树） -->
     <div class="gv-sidebar">
       <div class="emd-panel-header">
-        <span>{{ t("rb.graph") }}</span>
+        <span>{{ t("ab.graph") }}</span>
         <button class="gv-new-btn" :title="t('gf.newGraphTitle')" @click="openDialog('new')">
           <Icon name="plus" :size="13" />
         </button>

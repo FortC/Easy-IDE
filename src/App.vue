@@ -2,66 +2,19 @@
   <VaultPicker v-if="!vault.opened" />
   <Workspace v-else />
 
-  <!-- 系统打开文件时的模式选择弹窗 -->
+  <!-- 系统打开文件时的模式选择弹窗（懒加载：样式不进首屏包） -->
   <transition name="emd-fade">
-    <div v-if="openChoice.visible" class="emd-modal-bg" @click.self="doOpen('cancel')">
-      <div class="emd-modal oc-modal">
-        <div class="oc-header">
-          <svg viewBox="0 0 48 48" width="40" height="40" class="oc-logo">
-            <rect x="4" y="4" width="40" height="40" rx="10" fill="var(--interactive-accent)" />
-            <path d="M17 14h4v20h-4zM17 14h14v4H17zM17 23h11v4H17zM17 30h14v4H17z" fill="#fff" />
-          </svg>
-          <div class="oc-header-text">
-            <div class="oc-title">EasyIDE</div>
-            <div class="oc-subtitle">{{ t("oc.title") }}</div>
-          </div>
-        </div>
-
-        <div class="oc-file-box">
-          <svg viewBox="0 0 24 24" width="18" height="18" class="oc-file-icon">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="var(--text-accent)" opacity="0.3"/>
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="none" stroke="var(--text-accent)" stroke-width="1.5"/>
-            <polyline points="14 2 14 8 20 8" fill="none" stroke="var(--text-accent)" stroke-width="1.5"/>
-          </svg>
-          <span class="oc-file-name">{{ openChoice.fileName }}</span>
-        </div>
-
-        <div class="oc-cards">
-          <button class="oc-card" @click="doOpen('vault')">
-            <div class="oc-card-icon">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>
-              </svg>
-            </div>
-            <div class="oc-card-body">
-              <div class="oc-card-title">{{ t("oc.vault") }}</div>
-              <div class="oc-card-desc">{{ t("oc.vaultDesc") }}</div>
-            </div>
-          </button>
-
-          <button class="oc-card oc-card-temp" @click="doOpen('temp')">
-            <div class="oc-card-icon">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-                <line x1="9" y1="15" x2="15" y2="15"/>
-              </svg>
-            </div>
-            <div class="oc-card-body">
-              <div class="oc-card-title">{{ t("oc.temp") }}</div>
-              <div class="oc-card-desc">{{ t("oc.tempDesc") }}</div>
-            </div>
-          </button>
-        </div>
-
-        <button class="oc-cancel" @click="doOpen('cancel')">{{ t("c.cancel") }}</button>
-      </div>
-    </div>
+    <OpenChoiceDialog
+      v-if="openChoice.visible"
+      :visible="openChoice.visible"
+      :file-name="openChoice.fileName"
+      @select="doOpen"
+    />
   </transition>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from "vue";
+import { defineAsyncComponent, onMounted, onUnmounted, ref } from "vue";
 import VaultPicker from "./views/VaultPicker.vue";
 import Workspace from "./views/Workspace.vue";
 import { t } from "./i18n";
@@ -74,8 +27,14 @@ import { useUiStore } from "./stores/ui";
 import { useSyncStore } from "./stores/sync";
 import { useAgentStore } from "./stores/agent";
 import { useConsoleStore } from "./stores/console";
-import { seqFromEvent, useKeybindingsStore } from "./stores/keybindings";
+import { useHotReloadStore } from "./stores/hotReload";
+import { seqFromEvent, useKeybindingsStore, CM_RESERVED_SEQS } from "./stores/keybindings";
 import { openDailyNote } from "./lib/actions";
+
+// 系统打开文件弹窗：仅该场景使用，懒加载以把 ~2KB 样式移出首屏 CSS（性能预算）
+const OpenChoiceDialog = defineAsyncComponent(
+  () => import("./components/common/OpenChoiceDialog.vue"),
+);
 
 const settings = useSettingsStore();
 const vault = useVaultStore();
@@ -85,6 +44,7 @@ const ui = useUiStore();
 const sync = useSyncStore();
 const agentStore = useAgentStore();
 const consoleStore = useConsoleStore();
+const hotReload = useHotReloadStore();
 const kb = useKeybindingsStore();
 
 onMounted(async () => {
@@ -107,8 +67,12 @@ onMounted(async () => {
   // 索引增量事件：镜像更新 + 刷新文件树受影响目录
   api.onVaultChanged((payload) => {
     notesIndex.applyVaultChanged(payload);
+    // B6：源码变更交给热部署编排（内部去抖，只排期不阻塞）
+    if (payload.code_changed.length > 0) {
+      hotReload.onCodeChanged(payload.code_changed);
+    }
     if (payload.code_changed.length > 0 || payload.updated.length > 0 || payload.removed.length > 0) {
-      vault.refreshGitSoon();
+      vault.refreshVcsSoon();
     }
     for (const rel of [
       ...payload.updated.map((u) => u.path),
@@ -211,10 +175,53 @@ async function fallbackOpen() {
 }
 
 // ---- 全局快捷键 ----
+// 双击 Shift 手势（IDEA 式搜索）：两次纯 Shift 按下、间隔 <400ms 且中间没有其他按键。
+// 按住 Shift 产生的 repeat 不计；输入大写字母等「Shift+字母」组合天然打断（字母按键会置脏）。
+let lastShiftAt = 0;
+let shiftDirty = false;
+
+/**
+ * 全局快捷键的事件源判定。
+ * - 落在普通表单控件 / 非编辑器 contenteditable 里：交还控件本身，不劫持（否则在 AI 输入框按 Ctrl+P 会弹文件面板）。
+ * - 落在 CodeMirror 里：允许触发全局动作，但 CM 自带键位优先（见 CM_RESERVED_SEQS）。
+ */
+function isPlainFormField(t: EventTarget | null): boolean {
+  if (!(t instanceof HTMLElement)) return false;
+  const el = t.closest("input, textarea, select, [contenteditable]");
+  if (!el) return false;
+  return !el.closest(".cm-editor");
+}
+
+function inCodeMirror(t: EventTarget | null): boolean {
+  return t instanceof HTMLElement && !!t.closest(".cm-editor");
+}
+
 function onKeydown(e: KeyboardEvent) {
+  if (e.key === "Shift") {
+    if (!e.repeat && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      const now = performance.now();
+      if (!shiftDirty && lastShiftAt > 0 && now - lastShiftAt < 400) {
+        lastShiftAt = 0;
+        // 弹窗/命令面板等场景不打断；输入框里也不触发（否则打字时的双击 Shift 会弹搜索）
+        if (!isPlainFormField(e.target) && !ui.searchOpen && !ui.settingsOpen && !ui.newNoteOpen && vault.opened) {
+          e.preventDefault();
+          ui.openSearch("content");
+        }
+        return;
+      }
+      lastShiftAt = now;
+      shiftDirty = false;
+    }
+    return;
+  }
+  shiftDirty = true;
   if (!(e.ctrlKey || e.metaKey)) return;
+  // 输入框 / 普通文本域里不劫持快捷键，避免边打字边弹面板
+  if (isPlainFormField(e.target)) return;
   const seq = seqFromEvent(e);
   if (!seq) return;
+  // 编辑器聚焦时，让位给 CodeMirror 自带键位，避免一次按键触发两个动作
+  if (inCodeMirror(e.target) && CM_RESERVED_SEQS.has(seq)) return;
   const action = kb.reverse[seq];
   if (!action) return;
   e.preventDefault();
@@ -276,6 +283,21 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+// PF7：首屏可交互埋点 —— App 的 onMounted 完成时补一条，
+// 与 main.ts 的 nav_to_mount 一起构成「导航 → 可交互」完整链路。
+onMounted(() => {
+  const t0 = (window as unknown as Record<string, number>)["__easyideBootStart"];
+  if (t0 === undefined) return;
+  const ready = Math.round(performance.now() - t0);
+  try {
+    const prev = JSON.parse(localStorage.getItem("easyide-boot-breakdown") || "{}");
+    prev.app_mounted_ms = ready;
+    localStorage.setItem("easyide-boot-breakdown", JSON.stringify(prev));
+  } catch {
+    /* 忽略 */
+  }
+});
+
 onMounted(() => window.addEventListener("keydown", onKeydown));
 onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 
@@ -311,125 +333,5 @@ async function applyCssSnippets() {
 <style>
 #app {
   height: 100%;
-}
-
-/* ---------- 打开文件弹窗 ---------- */
-.oc-modal {
-  width: 460px;
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.oc-header {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-.oc-logo {
-  flex-shrink: 0;
-  border-radius: 10px;
-}
-.oc-title {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text-normal);
-  letter-spacing: 0.02em;
-}
-.oc-subtitle {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin-top: 2px;
-}
-.oc-file-box {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
-  border-radius: var(--radius-m);
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-}
-.oc-file-icon {
-  flex-shrink: 0;
-}
-.oc-file-name {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-normal);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.oc-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.oc-card {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 16px;
-  border-radius: var(--radius-l);
-  border: 2px solid var(--background-modifier-border);
-  background: var(--background-primary);
-  text-align: left;
-  cursor: pointer;
-  transition: border-color var(--anim-fast), background var(--anim-fast), transform var(--anim-fast);
-}
-.oc-card:hover {
-  border-color: var(--interactive-accent);
-  background: var(--interactive-accent-hover-alt);
-  transform: translateY(-1px);
-}
-.oc-card-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-m);
-  background: var(--interactive-accent-hover-alt);
-  color: var(--interactive-accent);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.oc-card:hover .oc-card-icon {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-}
-.oc-card-temp .oc-card-icon {
-  background: var(--code-background);
-  color: var(--text-muted);
-}
-.oc-card-temp:hover .oc-card-icon {
-  background: var(--text-muted);
-  color: var(--text-on-accent);
-}
-.oc-card-body {
-  flex: 1;
-  min-width: 0;
-}
-.oc-card-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-normal);
-  margin-bottom: 3px;
-}
-.oc-card-desc {
-  font-size: 12px;
-  color: var(--text-muted);
-  line-height: 1.4;
-}
-.oc-cancel {
-  align-self: center;
-  padding: 6px 20px;
-  border-radius: var(--radius-m);
-  color: var(--text-faint);
-  font-size: 13px;
-  transition: color var(--anim-fast);
-}
-.oc-cancel:hover {
-  color: var(--text-normal);
 }
 </style>

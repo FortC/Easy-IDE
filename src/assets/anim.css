@@ -1,0 +1,313 @@
+/* ============================================================
+   动效与通用交互 —— 全 app 复用的过渡 / 按压反馈 / 骨架屏 / 降级
+   七条红线见 AGENTS.md；令牌定义在 theme.css 的 :root
+   ============================================================ */
+
+/* ---------- Vue 过渡动画（全 app 复用；GPU 合成友好） ---------- */
+/* 下拉/气泡：淡入 + 轻微下移 */
+.emd-pop-enter-active,
+.emd-pop-leave-active {
+  transition: opacity var(--anim-hover), transform var(--anim-hover);
+}
+.emd-pop-enter-from,
+.emd-pop-leave-to {
+  opacity: 0;
+}
+.emd-pop-enter-from {
+  transform: translateY(-5px) scale(0.985);
+}
+.emd-pop-leave-to {
+  transform: translateY(-2px);
+}
+
+/* 模态遮罩：淡入淡出，内容轻微缩放。离场 ≤ 入场（红线3） */
+.emd-fade-enter-active,
+.emd-fade-leave-active {
+  transition: opacity var(--dur-base) var(--anim-ease-out);
+}
+.emd-fade-leave-active {
+  transition: opacity var(--dur-instant) var(--anim-ease-in);
+}
+.emd-fade-enter-active .emd-modal,
+.emd-fade-leave-active .emd-modal {
+  transition: transform var(--dur-slow) var(--anim-ease-out);
+}
+.emd-fade-leave-active .emd-modal {
+  transition: transform var(--dur-instant) var(--anim-ease-in);
+}
+.emd-fade-enter-from,
+.emd-fade-leave-to {
+  opacity: 0;
+}
+.emd-fade-enter-from .emd-modal {
+  transform: translateY(10px) scale(0.97);
+}
+.emd-fade-leave-to .emd-modal {
+  transform: translateY(4px) scale(0.985);
+}
+
+/* 侧栏滑入滑出 */
+.emd-side-l-enter-active,
+.emd-side-l-leave-active,
+.emd-side-r-enter-active,
+.emd-side-r-leave-active {
+  transition: opacity var(--dur-base) var(--anim-ease-out),
+    transform var(--dur-base) var(--anim-ease-out);
+}
+.emd-side-l-leave-active,
+.emd-side-r-leave-active {
+  transition: opacity var(--dur-instant) var(--anim-ease-in),
+    transform var(--dur-instant) var(--anim-ease-in);
+}
+.emd-side-l-enter-from,
+.emd-side-l-leave-to,
+.emd-side-r-enter-from,
+.emd-side-r-leave-to {
+  opacity: 0;
+}
+.emd-side-l-enter-from,
+.emd-side-l-leave-to {
+  transform: translateX(-12px);
+}
+.emd-side-r-enter-from,
+.emd-side-r-leave-to {
+  transform: translateX(12px);
+}
+
+/* 主视图切换（编辑 ↔ 图谱 ↔ 画布 ↔ 日历）：淡入 + 轻微上浮；离场更短保证切得快 */
+.emd-view-enter-active {
+  transition: opacity var(--dur-base) var(--anim-ease-out),
+    transform var(--dur-base) var(--anim-ease-out);
+}
+.emd-view-leave-active {
+  transition: opacity var(--dur-instant) var(--anim-ease-in);
+}
+.emd-view-enter-from {
+  opacity: 0;
+  transform: translateY(6px) scale(0.996);
+}
+.emd-view-leave-to {
+  opacity: 0;
+}
+
+/* 面板内切页（设置页 / 右栏 tab）：轻淡入 + 上浮 */
+.emd-pane-enter-active {
+  transition: opacity var(--dur-base) var(--anim-ease-out),
+    transform var(--dur-base) var(--anim-ease-out);
+}
+.emd-pane-leave-active {
+  transition: opacity var(--dur-instant) var(--anim-ease-in);
+}
+.emd-pane-enter-from {
+  opacity: 0;
+  transform: translateY(4px);
+}
+.emd-pane-leave-to {
+  opacity: 0;
+}
+
+/* 右栏 tab 切换：窄栏内位移会晃，改纯淡入 */
+.ws-right-body .emd-pane-enter-from,
+.ws-right-body .emd-pane-leave-to {
+  transform: none;
+}
+
+/* ==========================================================
+   M-2 全局按压反馈 —— 「跟手」的最小成本
+   用 transform（合成器、立即生效）而非 background（需等 hover 态切换）
+   红线：只动 transform，不触发 reflow
+
+   ⚠️ 本段只对「非 scoped 样式里定义了同名类」的组件生效。
+   scoped 组件（属性后缀隔离）命不中，必须在组件内自写 —— 见 AGENTS.md。
+   故此处只保留确实存在于非 scoped 上下文的基座类。
+   ========================================================== */
+.rb-preset:active,
+.emd-btn:active,
+.emd-tree-item:active,
+.bl-item:active,
+.jot-item:active {
+  transform: scale(0.96);
+  transition: transform var(--anim-press);
+}
+/* 触摸设备不做缩放，避免与移动端 hover 粘滞冲突 */
+@media (hover: none) {
+  .rb-preset:active,
+  .emd-btn:active,
+  .emd-tree-item:active,
+  .bl-item:active,
+  .jot-item:active {
+    transform: none;
+  }
+}
+
+/* ==========================================================
+   M-4 异步加载骨架屏
+   用 background-position 动画（合成器友好），不用 left 位移
+   ========================================================== */
+.async-skeleton {
+  height: 100%;
+  min-height: 80px;
+  background: linear-gradient(
+    90deg,
+    var(--background-secondary) 25%,
+    var(--background-modifier-hover) 37%,
+    var(--background-secondary) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-sweep var(--anim-loop) infinite;
+}
+@keyframes skeleton-sweep {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+/* 加载中的轻量占位：懒加载组件挂起时显示（defineAsyncComponent 首次点击有网络/解析延迟） */
+.async-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  color: var(--text-faint);
+}
+.async-loading-dots {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.async-loading-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  animation: dot-pulse var(--anim-loop) infinite;
+}
+.async-loading-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.async-loading-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes dot-pulse {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
+/* ==========================================================
+   动效强度设置（设置 → 外观 → 动效强度）
+   与系统 prefers-reduced-motion 双保险
+   ========================================================== */
+/* reduced（精简）：去掉位移与循环动画，只保留极短的透明度/颜色变化。
+   必须用 `*` 通配压住组件内 scoped 过渡与 infinite 动画 —— 仅点名 Vue 过渡类名是不够的，
+   因为绝大多数 transition 写在各组件的 scoped 块里。 */
+[data-motion="reduced"] *,
+[data-motion="reduced"] *::before,
+[data-motion="reduced"] *::after {
+  transition-duration: var(--dur-instant) linear !important;
+  transition-property: opacity, background-color, color, border-color !important;
+  animation-duration: var(--dur-instant) !important;
+  animation-iteration-count: 1 !important;
+}
+/* 位移类入场统一去掉，只剩淡入 */
+[data-motion="reduced"] .emd-pop-enter-from,
+[data-motion="reduced"] .emd-fade-enter-from,
+[data-motion="reduced"] .emd-fade-enter-from .emd-modal,
+[data-motion="reduced"] .emd-view-enter-from,
+[data-motion="reduced"] .emd-pane-enter-from,
+[data-motion="reduced"] .emd-side-l-enter-from,
+[data-motion="reduced"] .emd-side-r-enter-from {
+  transform: none;
+}
+[data-motion="reduced"] .async-skeleton {
+  animation: none;
+  background: var(--background-secondary);
+}
+[data-motion="off"] *,
+[data-motion="off"] *::before,
+[data-motion="off"] *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* 主题切换：View Transitions 全窗口 crossfade（一次合成器快照，无逐元素过渡开销） */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--dur-base);
+  animation-timing-function: var(--anim-ease-out);
+}
+
+/* 拖拽调宽时禁用一切过渡，保证 100% 跟手。
+   is-resizing 是通用标记（任意方向拖拽），is-col-resizing / is-row-resizing 只决定光标形状。 */
+body.is-resizing *,
+body.is-col-resizing *,
+body.is-row-resizing * {
+  transition: none !important;
+}
+
+/* 无障碍：用户系统要求减少动效时关闭动画 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/* 拖拽时的全局光标与防误选（分栏/分屏/控制台高度分隔条） */
+body.is-resizing,
+body.is-resizing * {
+  user-select: none !important;
+}
+body.is-col-resizing,
+body.is-col-resizing * {
+  cursor: col-resize !important;
+}
+body.is-row-resizing,
+body.is-row-resizing * {
+  cursor: row-resize !important;
+}
+
+/* 打印导出：仅显示打印层 */
+#print-root {
+  display: none;
+}
+@media print {
+  body > *:not(#print-root) {
+    display: none !important;
+  }
+  #print-root {
+    display: block !important;
+  }
+}
+
+/* 模态框（Obsidian 弹窗） */
+.emd-modal-bg {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.emd-modal {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-l2);
+  width: 560px;
+  max-width: 92vw;
+  max-height: 76vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}

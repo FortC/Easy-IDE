@@ -83,6 +83,15 @@ export const useEditorStore = defineStore("editor", {
       this.openToken++;
       this.persistSession();
     },
+    /** 拖拽排序：把 from 位置的标签移动到 to 位置 */
+    moveTab(from: number, to: number) {
+      if (from === to || from < 0 || from >= this.tabs.length) return;
+      const next = [...this.tabs];
+      const [moved] = next.splice(from, 1);
+      next.splice(Math.max(0, Math.min(next.length, to)), 0, moved);
+      this.tabs = next;
+      this.persistSession();
+    },
     /** 关闭标签（脏内容先保存） */
     async closeTab(path: string) {
       const d = this.docs[path];

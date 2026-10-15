@@ -84,7 +84,8 @@ fn handle_batch(app: &AppHandle, root: &std::path::Path, paths: HashSet<PathBuf>
     };
     {
         let state = app.state::<AppState>();
-        let mut guard = state.vault.lock().unwrap();
+        // 锁中毒不 panic：接管内部值继续用
+        let mut guard = state.vault.lock().unwrap_or_else(|p| p.into_inner());
         let vc: &mut VaultContext = match guard.as_mut() {
             Some(vc) => vc,
             None => return,

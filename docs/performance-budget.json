@@ -1,0 +1,17 @@
+{
+  "_comment": "首屏性能预算。Phase 4 瘦身后已双双回到 AGENTS.md 红线内，budget 直接等于红线目标，防止退化。",
+  "budget": {
+    "firstScreenJs": 256000,
+    "firstScreenCss": 77824
+  },
+  "baseline": {
+    "_comment": "瘦身前的基线（2026-10-15 实测），供对照",
+    "firstScreenJs": 276224,
+    "firstScreenCss": 89960
+  },
+  "vendorJs": {
+    "vendor-codemirror": 811000,
+    "vendor-vue": 92000,
+    "vendor-markdown": 240000
+  }
+}

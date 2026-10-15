@@ -1,7 +1,7 @@
 <template>
   <div class="docs-panel">
     <div class="emd-panel-header">
-      <span>{{ t("rb.docs") }}</span>
+      <span>{{ t("ab.docs") }}</span>
       <span class="dc-count">{{ docs.visibleEntries.length }}</span>
     </div>
 
@@ -165,7 +165,7 @@ import DropdownMenu, { type DropItem } from "../common/DropdownMenu.vue";
 import { useDocsStore, type DocsGroupMode } from "../../stores/docs";
 import { useEditorStore } from "../../stores/editor";
 import { useUiStore } from "../../stores/ui";
-import { useAiStore } from "../../stores/ai";
+import { useAgentStore } from "../../stores/agent";
 import { api } from "../../ipc/tauri";
 import type { DocEntry } from "../../types";
 import { t, tf } from "../../i18n";
@@ -173,7 +173,7 @@ import { t, tf } from "../../i18n";
 const docs = useDocsStore();
 const editor = useEditorStore();
 const ui = useUiStore();
-const aiStore = useAiStore();
+const agentStore = useAgentStore();
 
 const settingsOpen = ref(false);
 const knowledgeEdit = ref<[string, string][]>([]);
@@ -354,8 +354,9 @@ async function onMenuSelect(key: string) {
       );
       break;
     case "chat": {
-      const content = await api.readTextFile(e.path);
-      aiStore.openWith(content.slice(0, 15000));
+      // 导向 AI 面板统一入口（不再弹独立对话框）
+      agentStore.openPanel();
+      await agentStore.run(`请解读这份文档的用途与结构：${e.path}`);
       break;
     }
     case "copyPath": {
@@ -576,7 +577,7 @@ onUnmounted(() => {
   opacity: 0.5;
 }
 .is-spin {
-  animation: dc-spin 1s linear infinite;
+  animation: dc-spin var(--anim-loop) linear infinite;
 }
 @keyframes dc-spin {
   to {

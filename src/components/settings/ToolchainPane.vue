@@ -45,6 +45,7 @@ const rows = reactive([
   { kind: "maven", label: "Maven", get: () => settings.data.maven_path, set: (v: string) => (settings.data.maven_path = v), placeholder: "C:\\apache-maven-3.9.x（留空自动探测）", path: "", info: null as ToolInfo | null },
   { kind: "node", label: "Node", get: () => settings.data.node_path, set: (v: string) => (settings.data.node_path = v), placeholder: "node.exe 路径（留空自动探测）", path: "", info: null as ToolInfo | null },
   { kind: "git", label: "Git", get: () => settings.data.git_path, set: (v: string) => (settings.data.git_path = v), placeholder: "git.exe 路径（留空自动探测）", path: "", info: null as ToolInfo | null },
+  { kind: "svn", label: "SVN", get: () => settings.data.svn_path, set: (v: string) => (settings.data.svn_path = v), placeholder: "svn.exe 路径（留空自动探测）", path: "", info: null as ToolInfo | null },
 ]);
 for (const r of rows) r.path = r.get();
 
@@ -62,6 +63,8 @@ async function detectAll() {
   detecting.value = true;
   try {
     await persist();
+    // 手动重探测：清掉命令执行环境缓存，重新感知系统 PATH / 新安装工具
+    try { await api.toolchainRefresh(); } catch { /* 忽略：旧后端无此命令 */ }
     for (const row of rows) {
       row.info = await api.toolchainDetect(row.kind, row.path.trim() || null);
     }
@@ -113,7 +116,7 @@ async function detectAll() {
   color: #4ec970;
 }
 .tc-bad {
-  color: var(--text-error, #e93147);
+  color: var(--text-error);
 }
 .tc-hint {
   color: var(--text-faint);
@@ -125,7 +128,7 @@ async function detectAll() {
   margin-top: 8px;
 }
 .is-spin {
-  animation: tc-spin 1s linear infinite;
+  animation: tc-spin var(--anim-loop) linear infinite;
 }
 @keyframes tc-spin {
   to {

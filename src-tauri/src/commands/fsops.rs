@@ -18,6 +18,15 @@ fn with_vault<T>(
     }
 }
 
+/// 取工作区根目录快照（锁内取值，不跨 await 持锁）
+fn vault_root(state: &State<'_, AppState>) -> Result<std::path::PathBuf, String> {
+    let guard = state.vault.lock().map_err(|e| e.to_string())?;
+    guard
+        .as_ref()
+        .map(|vc| vc.root.clone())
+        .ok_or_else(|| "尚未打开知识库".to_string())
+}
+
 // ---------------- 读写 ----------------
 
 #[tauri::command]
@@ -35,6 +44,11 @@ pub fn write_text_file(
     path: String,
     content: String,
 ) -> Result<(), String> {
+    // 配方目录由 recipe 命令独占写入（防 Agent 注入命令配方，见改造方案V2 4.2.7）
+    let norm = path.replace('\\', "/").to_lowercase();
+    if norm == ".easyide/recipes" || norm.starts_with(".easyide/recipes/") {
+        return Err("配方文件由配方系统管理，不允许直接写入".into());
+    }
     with_vault(&state, |vc| {
         let full = vc.safe_join(&path).map_err(|e| e.to_string())?;
         if let Some(parent) = full.parent() {
@@ -101,7 +115,8 @@ pub fn list_dir(state: State<'_, AppState>, path: Option<String>) -> Result<Vec<
         for e in entries.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
             // IDE 需要展示项目点文件（.github/.mvn/.gitignore 等），只隐藏版本库与应用私有目录
-            if name == ".git" || name == ".easyide" || name == "Thumbs.db" {
+            // .svn 必须一并隐藏：SVN 1.6 每个子目录都有 .svn，不隐藏的话点开就是几千个文件
+            if name == ".git" || name == ".svn" || name == ".easyide" || name == "Thumbs.db" {
                 continue;
             }
             let rel = e
@@ -300,46 +315,54 @@ pub struct FileWithTime {
     pub kind: String,
 }
 
+/// 全库文件列表（含修改时间）：日历看板按日期聚合（全库遍历放后台线程，避免大库冻结窗口）
 #[tauri::command]
-pub fn list_all_files_with_mtime(state: State<'_, AppState>) -> Result<Vec<FileWithTime>, String> {
-    with_vault(&state, |vc| {
-        let mut out = Vec::new();
-        for entry in walkdir::WalkDir::new(&vc.root)
-            .into_iter()
-            .filter_entry(|e| {
-                e.depth() == 0
-                    || (!e.file_name().to_string_lossy().starts_with('.')
-                        && e.file_name() != "node_modules"
-                        && e.file_name().to_string_lossy() != "Thumbs.db")
-            })
-        {
-            let Ok(e) = entry else { continue };
-            if !e.file_type().is_file() {
-                continue;
-            }
-            let name = e.file_name().to_string_lossy().to_string();
-            let kind = entry_kind(&name).to_string();
-            if kind == "other" {
-                continue; // 只关注 md / canvas / graph / image
-            }
-            let rel = e
-                .path()
-                .strip_prefix(&vc.root)
-                .unwrap_or(e.path())
-                .to_string_lossy()
-                .replace('\\', "/");
-            let mtime = e
-                .metadata()
-                .ok()
-                .and_then(|m| m.modified().ok())
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            out.push(FileWithTime { path: rel, mtime, kind });
+pub async fn list_all_files_with_mtime(
+    state: State<'_, AppState>,
+) -> Result<Vec<FileWithTime>, String> {
+    let root = vault_root(&state)?;
+    tauri::async_runtime::spawn_blocking(move || walk_files_with_mtime(&root))
+        .await
+        .map_err(|e| format!("后台任务异常：{}", e))
+}
+
+fn walk_files_with_mtime(root: &Path) -> Vec<FileWithTime> {
+    let mut out = Vec::new();
+    for entry in walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_entry(|e| {
+            e.depth() == 0
+                || (!e.file_name().to_string_lossy().starts_with('.')
+                    && e.file_name() != "node_modules"
+                    && e.file_name().to_string_lossy() != "Thumbs.db")
+        })
+    {
+        let Ok(e) = entry else { continue };
+        if !e.file_type().is_file() {
+            continue;
         }
-        out.sort_by(|a, b| b.mtime.cmp(&a.mtime));
-        Ok(out)
-    })
+        let name = e.file_name().to_string_lossy().to_string();
+        let kind = entry_kind(&name).to_string();
+        if kind == "other" {
+            continue; // 只关注 md / canvas / graph / image
+        }
+        let rel = e
+            .path()
+            .strip_prefix(root)
+            .unwrap_or(e.path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        let mtime = e
+            .metadata()
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        out.push(FileWithTime { path: rel, mtime, kind });
+    }
+    out.sort_by(|a, b| b.mtime.cmp(&a.mtime));
+    out
 }
 
 /// 复制文件为副本：foo.md → foo 副本.md
@@ -364,15 +387,19 @@ pub fn duplicate_file(state: State<'_, AppState>, path: String) -> Result<String
     })
 }
 
-/// 批量删除（到回收站）
+/// 批量删除（到回收站；批量回收站操作放后台线程，避免大文件冻结窗口）
 #[tauri::command]
-pub fn delete_files(state: State<'_, AppState>, paths: Vec<String>) -> Result<Vec<String>, String> {
-    with_vault(&state, |vc| {
+pub async fn delete_files(
+    state: State<'_, AppState>,
+    paths: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let root = vault_root(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
         let mut deleted = Vec::new();
         let mut errors = Vec::new();
         for p in &paths {
-            let full = vc.safe_join(p).map_err(|e| e.to_string())?;
-            if full == vc.root {
+            let full = crate::state::safe_join(&root, p).map_err(|e| e.to_string())?;
+            if full == root {
                 continue;
             }
             match trash::delete(&full) {
@@ -385,6 +412,8 @@ pub fn delete_files(state: State<'_, AppState>, paths: Vec<String>) -> Result<Ve
         }
         Ok(deleted)
     })
+    .await
+    .map_err(|e| format!("后台任务异常：{}", e))?
 }
 
 /// 导出用：把文本写到 vault 外（用户通过保存对话框选定的绝对路径）
@@ -407,16 +436,17 @@ pub fn read_external_binary(path: String) -> Result<Vec<u8>, String> {
     std::fs::read(full).map_err(|e| format!("读取失败：{}", e))
 }
 
-/// 导入文件：把外部文件复制进 vault 指定目录（同名自动加序号）
+/// 导入文件：把外部文件复制进 vault 指定目录（同名自动加序号；批量复制放后台线程）
 #[tauri::command]
-pub fn import_files(
+pub async fn import_files(
     state: State<'_, AppState>,
     folder: Option<String>,
     paths: Vec<String>,
 ) -> Result<Vec<String>, String> {
-    with_vault(&state, |vc| {
+    let root = vault_root(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
         let dir = folder.unwrap_or_default();
-        let dir_full = vc.safe_join(&dir).map_err(|e| e.to_string())?;
+        let dir_full = crate::state::safe_join(&root, &dir).map_err(|e| e.to_string())?;
         std::fs::create_dir_all(&dir_full).map_err(|e| format!("创建目录失败：{}", e))?;
         let mut imported = Vec::new();
         for p in &paths {
@@ -431,7 +461,7 @@ pub fn import_files(
             let full = unique_path(dir_full.join(&name));
             std::fs::copy(src, &full).map_err(|e| format!("复制 {} 失败：{}", name, e))?;
             imported.push(
-                full.strip_prefix(&vc.root)
+                full.strip_prefix(&root)
                     .unwrap_or(&full)
                     .to_string_lossy()
                     .replace('\\', "/"),
@@ -439,4 +469,6 @@ pub fn import_files(
         }
         Ok(imported)
     })
+    .await
+    .map_err(|e| format!("后台任务异常：{}", e))?
 }

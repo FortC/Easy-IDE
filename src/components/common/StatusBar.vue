@@ -1,5 +1,6 @@
 <template>
-  <div class="statusbar">
+  <!-- role=status：分支名/字数等状态变化对读屏可见 -->
+  <div class="statusbar" role="status" aria-live="off">
     <div class="sb-left">
       <span v-if="sync.running" class="sb-item sb-sync">
         <Icon name="refresh-cw" :size="12" /> {{ sync.message || t("ai.thinking") }}
@@ -12,8 +13,8 @@
       <span v-else-if="editor.isDirty" class="sb-item">{{ t("sb.unsaved") }}</span>
     </div>
     <div class="sb-right">
-      <span v-if="vault.gitBranch" class="sb-item sb-branch">
-        <Icon name="git-branch" :size="11" /> {{ vault.gitBranch }}
+      <span v-if="vault.vcsBranch || vault.vcsRevision" class="sb-item sb-branch">
+        <Icon name="git-branch" :size="11" /> {{ vcsLabel }}
       </span>
       <span v-if="backlinkCount > 0" class="sb-item">
         <Icon name="link" :size="12" /> {{ tf("sb.backlinks", { n: backlinkCount }) }}
@@ -50,6 +51,14 @@ const modeLabel = computed(
       editor.mode
     ] || "",
 );
+
+/** 版本控制状态（V3：Git/SVN 统一显示） */
+const vcsLabel = computed(() => {
+  const b = vault.vcsBranch;
+  const r = vault.vcsRevision;
+  if (vault.vcsKind === "svn") return `svn ${b || ""}${b && r ? "@" : ""}${r || ""}`.trim();
+  return b || r || "";
+});
 
 onMounted(async () => {
   // 反链数跟随当前笔记变化刷新

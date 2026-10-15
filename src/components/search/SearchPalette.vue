@@ -1,12 +1,14 @@
 <template>
   <transition name="emd-fade">
     <div v-if="ui.searchOpen" class="emd-modal-bg" @click.self="close">
-    <div class="emd-modal sp-modal">
-      <div class="sp-tabs">
+    <div class="emd-modal sp-modal" role="dialog" aria-modal="true" :aria-label="placeholder">
+      <div class="sp-tabs" role="tablist">
         <button
           v-for="m in modeTabs"
           :key="m.key"
           class="sp-tab"
+          role="tab"
+          :aria-selected="mode === m.key"
           :class="{ 'is-active': mode === m.key }"
           @click="switchMode(m.key)"
         >
@@ -18,6 +20,10 @@
         v-model="query"
         type="text"
         class="sp-input"
+        role="combobox"
+        aria-autocomplete="list"
+        :aria-expanded="hitCount > 0"
+        :aria-activedescendant="activeId"
         :placeholder="placeholder"
         @keydown.down.prevent="move(1)"
         @keydown.up.prevent="move(-1)"
@@ -30,6 +36,7 @@
           <div
             v-for="(h, i) in fileHits"
             :key="h.path"
+            :id="`sp-r-${i}`"
             class="sp-item"
             :class="{ 'is-selected': i === selected }"
             @mousemove="selected = i"
@@ -46,6 +53,7 @@
           <div
             v-for="(h, i) in symbolHits"
             :key="h.path + h.name + h.line"
+            :id="`sp-r-${i}`"
             class="sp-item"
             :class="{ 'is-selected': i === selected }"
             @mousemove="selected = i"
@@ -64,6 +72,7 @@
           <div
             v-for="(h, i) in textHits"
             :key="h.path + h.line_no"
+            :id="`sp-r-${i}`"
             class="sp-item sp-item-content"
             :class="{ 'is-selected': i === selected }"
             @mousemove="selected = i"
@@ -74,14 +83,18 @@
               <span class="sp-title">{{ fileNameOf(h.path) }}</span>
               <span class="sp-ln">:{{ h.line_no }}</span>
             </div>
-            <div class="sp-text">{{ h.text }}</div>
+            <div class="sp-text" v-html="highlight(h.text)" />
           </div>
         </template>
 
-        <div v-if="searched && hitCount === 0" class="sp-empty">
+        <div v-if="loading" class="sp-empty">
+          <span class="sp-dots"><i /><i /><i /></span>
+        </div>
+        <div v-else-if="error" class="sp-empty is-error">{{ t("sp.failed") }}</div>
+        <div v-else-if="searched && hitCount === 0" class="sp-empty">
           {{ t("sp.none") }}
         </div>
-        <div v-if="!searched" class="sp-empty">{{ hint }}</div>
+        <div v-else-if="!searched" class="sp-empty">{{ hint }}</div>
       </div>
     </div>
   </div>
@@ -106,7 +119,11 @@ const query = ref("");
 const mode = ref<PaletteMode>("file");
 const selected = ref(0);
 const searched = ref(false);
+const loading = ref(false);
+const error = ref("");
 const inputRef = ref<HTMLInputElement>();
+/** 键盘高亮项的 DOM id，配合输入框的 aria-activedescendant（读屏可达） */
+const activeId = computed(() => (hitCount.value ? `sp-r-${selected.value}` : ""));
 
 const fileHits = ref<CodeFileHit[]>([]);
 const symbolHits = ref<SymbolHit[]>([]);
@@ -185,25 +202,50 @@ async function doSearch(q: string) {
   const token = ++seq;
   if (!q.trim()) {
     searched.value = false;
+    loading.value = false;
+    error.value = "";
     fileHits.value = [];
     symbolHits.value = [];
     textHits.value = [];
     return;
   }
-  if (mode.value === "file") {
-    const hits = await api.codeFileSearch(q, 50);
-    if (token === seq) fileHits.value = hits;
-  } else if (mode.value === "class") {
-    const hits = await api.codeSymbolSearch(q, ["class", "interface", "enum", "record"], 50);
-    if (token === seq) symbolHits.value = hits;
-  } else if (mode.value === "symbol") {
-    const hits = await api.codeSymbolSearch(q, null, 50);
-    if (token === seq) symbolHits.value = hits;
-  } else {
-    const hits = await api.codeTextSearch(q, false, 300);
-    if (token === seq) textHits.value = hits;
+  loading.value = true;
+  error.value = "";
+  try {
+    if (mode.value === "file") {
+      const hits = await api.codeFileSearch(q, 50);
+      if (token === seq) fileHits.value = hits;
+    } else if (mode.value === "class") {
+      const hits = await api.codeSymbolSearch(q, ["class", "interface", "enum", "record"], 50);
+      if (token === seq) symbolHits.value = hits;
+    } else if (mode.value === "symbol") {
+      const hits = await api.codeSymbolSearch(q, null, 50);
+      if (token === seq) symbolHits.value = hits;
+    } else {
+      const hits = await api.codeTextSearch(q, false, 300);
+      if (token === seq) textHits.value = hits;
+    }
+  } catch (e) {
+    // 检索失败要看得见，否则表现为「面板空白」
+    if (token === seq) error.value = String(e);
+    return;
+  } finally {
+    if (token === seq) loading.value = false;
   }
   if (token === seq) searched.value = true;
+}
+
+/** 把命中词在文本中高亮（返回分段，供 v-html 渲染；输入先转义） */
+function highlight(line: string): string {
+  const q = query.value.trim();
+  if (!q) return escapeHtml(line);
+  const escaped = escapeHtml(line);
+  const needle = escapeHtml(q).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return escaped.replace(new RegExp(needle, "gi"), (m) => `<mark class="sp-hl">${m}</mark>`);
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
 function switchMode(m: PaletteMode) {
@@ -234,6 +276,8 @@ async function chooseSelected() {
 async function openAt(path: string, line?: number) {
   close();
   await editor.openNote(path, line !== undefined ? { line: line - 1 } : null);
+  // 打开文件即回到编辑功能区（图谱/日历全幅视图下经 Ctrl+P 开文件时防串场）
+  ui.view = "editor";
 }
 
 function close() {
@@ -328,6 +372,44 @@ onMounted(() => {
   color: var(--text-faint);
   text-align: center;
   padding: 24px 8px;
+}
+.sp-empty.is-error {
+  color: var(--text-error);
+}
+/* 全文命中词高亮 */
+.sp-hl {
+  background: var(--interactive-accent-hover-alt);
+  color: var(--text-normal);
+  border-radius: 2px;
+}
+/* 检索中：三点脉冲（AGENTS.md 要求用脉冲，不用旋转 spinner） */
+.sp-dots {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.sp-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  animation: sp-dot-pulse var(--anim-loop) infinite;
+}
+.sp-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.sp-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes sp-dot-pulse {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+  }
+  30% {
+    opacity: 1;
+  }
 }
 /* 符号类型徽标（IDEA 风格字母角标） */
 .sp-kind {

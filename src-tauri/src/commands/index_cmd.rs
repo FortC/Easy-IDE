@@ -4,16 +4,31 @@ use crate::index::model::{Backlink, NoteIndex, ResolveResult, TagCount};
 use crate::state::AppState;
 use tauri::State;
 
-/// 手动重建索引（丢弃缓存全量扫描）
+/// 手动重建索引（丢弃缓存全量扫描；全量扫描 + 缓存落盘放后台线程，避免大库重建冻结窗口）
 #[tauri::command]
-pub fn rebuild_index(state: State<'_, AppState>) -> Result<Vec<NoteIndex>, String> {
+pub async fn rebuild_index(state: State<'_, AppState>) -> Result<Vec<NoteIndex>, String> {
+    let (root, cache_path) = {
+        let guard = state.vault.lock().map_err(|e| e.to_string())?;
+        let vc = guard.as_ref().ok_or("尚未打开知识库")?;
+        (vc.root.clone(), vc.cache_path.clone())
+    };
+    let scan_root = root.clone();
+    let (engine, notes) = tauri::async_runtime::spawn_blocking(move || {
+        let engine = crate::index::engine::IndexEngine::scan(&scan_root)
+            .map_err(|e| format!("扫描失败：{}", e))?;
+        let notes = engine.all_notes();
+        engine.save_cache(&cache_path);
+        Ok::<_, String>((engine, notes))
+    })
+    .await
+    .map_err(|e| format!("后台任务异常：{}", e))??;
+    // 装配回内存（扫描期间已切换工作区则丢弃本次结果）
     let mut guard = state.vault.lock().map_err(|e| e.to_string())?;
     let vc = guard.as_mut().ok_or("尚未打开知识库")?;
-    let engine = crate::index::engine::IndexEngine::scan(&vc.root)
-        .map_err(|e| format!("扫描失败：{}", e))?;
-    let notes = engine.all_notes();
+    if vc.root != root {
+        return Err("工作区已切换，重建结果已丢弃，请重试".into());
+    }
     vc.engine = engine;
-    vc.engine.save_cache(&vc.cache_path);
     Ok(notes)
 }
 

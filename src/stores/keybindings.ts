@@ -15,7 +15,7 @@ export const KB_ACTIONS: KbAction[] = [
   { id: "symbolSearch", label: () => t("sp.symbol"), def: "Ctrl+Shift+Alt+N" },
   { id: "contentSearch", label: () => t("sp.content"), def: "Ctrl+Shift+F" },
   { id: "newNote", label: () => t("sc.newNote"), def: "Ctrl+Alt+N" },
-  { id: "daily", label: () => t("sc.daily"), def: "Ctrl+D" },
+  { id: "daily", label: () => t("sc.daily"), def: "Ctrl+Shift+D" },
   { id: "cycleMode", label: () => t("sc.cycleMode"), def: "Ctrl+E" },
   { id: "graph", label: () => t("sc.graph"), def: "Ctrl+G" },
   { id: "settings", label: () => t("sc.settings"), def: "Ctrl+," },
@@ -24,6 +24,13 @@ export const KB_ACTIONS: KbAction[] = [
   { id: "prevTab", label: () => t("sc.prevTab"), def: "Ctrl+Shift+Tab" },
   { id: "closeTab", label: () => t("tab.close"), def: "Ctrl+W" },
 ];
+
+/**
+ * CodeMirror defaultKeymap 已占用的序列。编辑器聚焦时这些组合必须让给编辑器自身，
+ * 否则会一次按键触发两个动作（例如 Mod-d = 选中下一个相同文本 vs 新建日记）。
+ * 见 App.vue 的 onKeydown 守卫。
+ */
+export const CM_RESERVED_SEQS = new Set(["ctrl+d"]);
 
 /** 键序列规范化："ctrl+shift+alt+n" 形式（小写、顺序固定） */
 export function normalizeSeq(seq: string): string {

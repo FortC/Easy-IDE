@@ -13,7 +13,6 @@ import {
   emdAssetUrl,
   extractBlock,
   extractSection,
-  renderMarkdown,
   slugify,
 } from "../../lib/markdown/renderer";
 import { isImageName, resolveAssetPath, resolveTarget } from "../../lib/markdown/links";
@@ -26,28 +25,45 @@ const ui = useUiStore();
 const previewEl = ref<HTMLElement>();
 const emit = defineEmits<{ jump: [target: { path?: string; anchor?: string; line?: number }] }>();
 
-const html = computed(() => {
-  if (!editor.activePath) return "";
-  return renderMarkdown(editor.content, {
+// 性能：markdown-it 懒加载（PreviewView 仅在「预览/分屏」模式才挂载，
+// 不该让首屏主包带上 markdown-it）
+type MdModule = typeof import("../../lib/markdown/md-render");
+let mdMod: MdModule | null = null;
+async function md(): Promise<MdModule> {
+  if (!mdMod) mdMod = await import("../../lib/markdown/md-render");
+  return mdMod;
+}
+
+async function renderMd(content: string, sourcePath?: string): Promise<string> {
+  const m = await md();
+  return m.renderMarkdown(content, {
     resolveNote: (t) => resolveTarget(t, indexStore.notes).path,
     attachmentsDir: settings.data.attachments_dir,
-    sourcePath: editor.activePath,
+    sourcePath,
   });
-});
+}
+
+const html = ref("");
 
 watch(
-  html,
-  async () => {
+  () => [editor.activePath, editor.content] as const,
+  async ([path, content]) => {
     if (!previewEl.value) return;
+    if (!path) {
+      html.value = "";
+      return;
+    }
+    html.value = await renderMd(content, path);
     previewEl.value.innerHTML = html.value;
     await fillEmbeds(previewEl.value, 0);
     handlePendingJump();
   },
-  { immediate: false },
+  { immediate: true },
 );
 
 onMounted(async () => {
-  if (previewEl.value && html.value) {
+  if (previewEl.value && editor.activePath) {
+    html.value = await renderMd(editor.content, editor.activePath);
     previewEl.value.innerHTML = html.value;
     await fillEmbeds(previewEl.value, 0);
     handlePendingJump();
@@ -81,11 +97,7 @@ async function fillEmbeds(root: HTMLElement, depth: number) {
       } else if (sub) {
         body = extractSection(raw, sub);
       }
-      const inner = renderMarkdown(body, {
-        resolveNote: (t) => resolveTarget(t, indexStore.notes).path,
-        attachmentsDir: settings.data.attachments_dir,
-        sourcePath: resolved,
-      });
+      const inner = await renderMd(body, resolved);
       const title = noteIndex?.title || target;
       node.innerHTML = `<div class="emd-embed-head"><a class="internal-link" data-target="${target}" data-subpath="" href="javascript:void(0)">${title}</a></div><div class="emd-embed-body">${inner}</div>`;
       await fillEmbeds(node, depth + 1);

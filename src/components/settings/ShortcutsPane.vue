@@ -105,7 +105,7 @@ onUnmounted(() => window.removeEventListener("pointerdown", onBlur));
 }
 .sc-what.is-conflict,
 .sc-key-btn.is-conflict {
-  color: var(--text-error, #e93147);
+  color: var(--text-error);
 }
 .sc-key-btn {
   min-width: 150px;
@@ -125,7 +125,7 @@ onUnmounted(() => window.removeEventListener("pointerdown", onBlur));
 .sc-key-btn.is-listening {
   border-color: var(--interactive-accent);
   color: var(--interactive-accent);
-  animation: sc-pulse 1s ease-in-out infinite;
+  animation: sc-pulse var(--anim-loop) infinite;
 }
 @keyframes sc-pulse {
   50% {

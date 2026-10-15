@@ -260,7 +260,7 @@ function fileName(path: string): string {
   color: #e5a03c;
 }
 .pk-error {
-  color: var(--text-error, #e93147);
+  color: var(--text-error);
   font-size: var(--font-ui-smaller);
   white-space: pre-wrap;
 }

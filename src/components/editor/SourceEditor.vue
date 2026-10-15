@@ -12,12 +12,44 @@
     >
       AI
     </button>
+
+    <!-- Alt+点击同名多命中时的定义选择器 -->
+    <div
+      v-if="pick.open"
+      class="gd-pick"
+      :style="{ left: pickPos.x + 'px', top: pickPos.y + 'px' }"
+      @mousedown.stop
+    >
+      <div class="gd-pick-hd">
+        <span class="gd-pick-word">{{ pick.word }}</span>
+        <span class="gd-pick-path">{{ pick.list.length }}</span>
+      </div>
+      <button
+        v-for="it in pick.list"
+        :key="it.path + ':' + it.line"
+        class="gd-pick-row"
+        :title="it.path + ':' + it.line"
+        @click="gotoTarget(it)"
+      >
+        <span class="gd-pick-kind">{{ kindTag(it.kind) }}</span>
+        <span class="gd-pick-main">
+          <span class="gd-pick-name">{{ it.name }}</span>
+          <span v-if="it.container" class="gd-pick-ct">{{ it.container }}</span>
+        </span>
+        <span class="gd-pick-path">{{ it.path.split('/').slice(-2).join('/') }}:{{ it.line }}</span>
+      </button>
+    </div>
+
+    <!-- 找不到定义时的瞬时提示（过渡复用 anim.css 的 emd-fade，不重复定义） -->
+    <Transition name="emd-fade">
+      <div v-if="flash.on" class="gd-flash">{{ flash.msg }}</div>
+    </Transition>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, onUnmounted, reactive, ref, watch, computed } from "vue";
-import { EditorState, RangeSetBuilder, Compartment, type Extension } from "@codemirror/state";
+import { EditorState, RangeSetBuilder, Compartment, StateEffect, StateField, type Extension } from "@codemirror/state";
 import {
   EditorView,
   Decoration,
@@ -42,16 +74,24 @@ import {
 import { api } from "../../ipc/tauri";
 import { useEditorStore } from "../../stores/editor";
 import { useNotesIndexStore } from "../../stores/notesIndex";
-import { useAiStore } from "../../stores/ai";
+import { useAgentStore } from "../../stores/agent";
+import { useSettingsStore } from "../../stores/settings";
 import { codeLangOf, isMarkdown } from "../../lib/filetypes";
+import { applyCodeThemeVars, codeThemeExtensions, resolveCodeTheme } from "../../lib/editorThemes";
 import { t, tf } from "../../i18n";
+import { resolveDefinition, wordAtPos, type GotoTarget } from "../../lib/gotoDef";
+import { suggestSymbols } from "../../lib/localSuggest";
+import type { SymbolHit } from "../../types";
 
 const host = ref<HTMLElement>();
 const wrapEl = ref<HTMLElement>();
 const editor = useEditorStore();
 const indexStore = useNotesIndexStore();
-const aiStore = useAiStore();
+const agentStore = useAgentStore();
+const settings = useSettingsStore();
 let view: EditorView | null = null;
+/** 选区同步函数的转发引用（makeState 的 updateListener 需要提前访问） */
+let syncSelectionRef: (() => void) | null = null;
 let syncing = false; // 区分"编辑器输入"与"外部写入"
 
 /** 当前活动文档是否为 markdown（否则按代码文件渲染） */
@@ -86,7 +126,8 @@ function updateAiButton() {
 
 function askAi() {
   aiBtn.visible = false;
-  aiStore.openWith(aiBtn.text);
+  // 导向 AI 面板；选区上下文已由 syncSelection 挂载，直接问即可
+  agentStore.openPanel();
 }
 
 // ---------- 格式动作（由头部工具栏通过事件触发） ----------
@@ -385,6 +426,47 @@ function tagCompletion(ctx: CompletionContext) {
   };
 }
 
+// ---- B7-A 档：本地符号联想 ----
+// 返回 Promise（CompletionResult | Promise<CompletionResult | null> 是 API 允许的），
+// 联想走 IPC 查符号索引，所以必须异步；ctx.explicit 表示 Ctrl+Space 强触发。
+let symbolCompletionSeq = 0;
+function symbolCompletion(ctx: CompletionContext) {
+  const word = ctx.matchBefore(/[\p{L}\p{N}_$][\p{L}\p{N}_$]*/u);
+  if (!word) return null;
+  if (word.from === word.to && !ctx.explicit) return null;
+  // 字符串字面量里不做联想：补全会打断正常输入，且几乎从不正确
+  if (insideStringOrComment(ctx)) return null;
+  const prefix = ctx.state.sliceDoc(word.from, word.to);
+  const seq = ++symbolCompletionSeq;
+  const path = editor.activePath;
+  return suggestSymbols(prefix, path).then((items) => {
+    // 用户继续打字后又发起了新查询，丢弃这次过期结果，避免列表闪回旧内容
+    if (seq !== symbolCompletionSeq || !items.length) return null;
+    return {
+      from: word.from,
+      options: items.map((s) => ({
+        label: s.label,
+        detail: s.detail,
+        type: "variable",
+        // kind 已体现在 detail 里，不重复占一行
+        info: s.kind,
+      })),
+      validFor: /^[\p{L}\p{N}_$]*$/u,
+    };
+  });
+}
+
+/** 粗判光标是否位于字符串/注释内：语言包未就绪时也保守跳过，宁可少联想不可错联想 */
+function insideStringOrComment(ctx: CompletionContext): boolean {
+  const line = ctx.state.doc.lineAt(ctx.pos);
+  const text = line.text.slice(0, ctx.pos - line.from);
+  // 未闭合的引号 / 块注释起始
+  const quote = (text.match(/"/g) || []).length + (text.match(/'/g) || []).length;
+  if (quote % 2 === 1) return true;
+  if (/^\s*(\/\/|#)/.test(text)) return true;
+  return /\/\*(?!(?:.|\n)*?\*\/)/.test(text) && !/\*\//.test(text);
+}
+
 // ---- 粘贴图片 → 附件目录 ----
 const pasteHandler = EditorView.domEventHandlers({
   paste(event, v) {
@@ -412,10 +494,173 @@ const pasteHandler = EditorView.domEventHandlers({
   },
 });
 
+// ---- Alt+点击跳定义（B5.1） ----
+/** 同名多命中时的选择器；单命中直接跳，不打扰用户 */
+const pick = reactive<{ open: boolean; word: string; list: GotoTarget[] }>({
+  open: false,
+  word: "",
+  list: [],
+});
+/** Alt 按下时高亮光标下的标识符，给出「可跳转」的视觉暗示 */
+const altHint = reactive<{ on: boolean; from: number; to: number }>({
+  on: false,
+  from: 0,
+  to: 0,
+});
+/** 正在解析中：避免 Alt 连点打爆后端 */
+let defBusy = false;
+
+function closePick() {
+  pick.open = false;
+  pick.list = [];
+  pick.word = "";
+}
+
+/** 跳到目标位置；跨文件时走 openNote + pendingJump（同 RefsPanel 已验证的模式） */
+function gotoTarget(tg: GotoTarget) {
+  const cur = editor.activePath;
+  closePick();
+  if (tg.path === cur) {
+    gotoLine(Math.max(0, tg.line - 1));
+    return;
+  }
+  // openNote 会保存当前编辑内容并切 activePath，pendingJump 由 watch 消费
+  editor.pendingJump = { line: Math.max(0, tg.line - 1) };
+  void editor.openNote(tg.path);
+}
+
+async function doGoto(word: string, anchor?: number) {
+  if (defBusy || !word) return;
+  defBusy = true;
+  try {
+    const list = await resolveDefinition(word, editor.activePath);
+    if (!list.length) {
+      flashHint(t("gd.notFound"));
+      return;
+    }
+    if (list.length === 1) gotoTarget(list[0]);
+    else {
+      pick.word = word;
+      pick.list = list;
+      pick.open = true;
+      // 落在光标处，比鼠标位置更稳定（mousedown 已把光标移到点击点）
+      if (view && anchor !== undefined) {
+        const c = view.coordsAtPos(anchor);
+        if (c) placePick(c.left, c.bottom);
+        else placePick(0, 0);
+      }
+    }
+  } finally {
+    defBusy = false;
+  }
+}
+
+/** 顶部瞬时提示（找不到定义时用，220ms 自动消失） */
+const flash = reactive({ msg: "", on: false });
+let flashTimer: number | undefined;
+function flashHint(msg: string) {
+  flash.msg = msg;
+  flash.on = true;
+  if (flashTimer) window.clearTimeout(flashTimer);
+  flashTimer = window.setTimeout(() => (flash.on = false), 2200);
+}
+
+function kindTag(kind: string): string {
+  return (
+    {
+      class: "C",
+      interface: "I",
+      enum: "E",
+      record: "R",
+      method: "M",
+      function: "F",
+      field: "A",
+    }[kind] ?? "?"
+  );
+}
+
+/** 选择器定位：跟随 Alt 提示位置，夹在编辑器可视区内 */
+const pickPos = reactive({ x: 0, y: 0 });
+function placePick(clientX: number, clientY: number) {
+  const wrap = wrapEl.value;
+  if (!wrap) return;
+  const r = wrap.getBoundingClientRect();
+  const w = 320;
+  const h = Math.min(pick.list.length * 26 + 12, 300);
+  pickPos.x = Math.min(Math.max(8, clientX - r.left), Math.max(8, r.width - w - 8));
+  pickPos.y = Math.min(Math.max(8, clientY - r.top + 18), Math.max(8, r.height - h - 8));
+}
+
+/**
+ * Alt+点击：取光标处标识符并跳转。
+ * 只在代码语境生效（md 下 Alt 是无害的，但符号索引对 md 无意义，故不启用）。
+ */
+const gotoDefHandler = EditorView.domEventHandlers({
+  mousedown(event, v) {
+    if (!event.altKey || event.button !== 0 || isMd.value) return false;
+    const pos = v.posAtCoords({ x: event.clientX, y: event.clientY });
+    if (pos === null || pos === undefined) return false;
+    const word = wordAtPos(v.state.doc.toString(), pos);
+    if (!word) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    closePick();
+    void doGoto(word, pos);
+    return true;
+  },
+  mousemove(event, v) {
+    if (isMd.value) return false;
+    const alt = event.altKey;
+    if (!alt) {
+      if (altHint.on) {
+        altHint.on = false;
+        v.dispatch({ effects: hintEffect(null) });
+      }
+      return false;
+    }
+    const pos = v.posAtCoords({ x: event.clientX, y: event.clientY });
+    if (pos === null || pos === undefined) {
+      altHint.on = false;
+      return false;
+    }
+    const text = v.state.doc.toString();
+    const word = wordAtPos(text, pos);
+    if (!word) {
+      altHint.on = false;
+      return false;
+    }
+    // 用行内偏移反推 from/to（wordAtPos 只返回词，不返回区间）
+    const line = v.state.doc.lineAt(pos);
+    const rel = text.indexOf(word, line.from);
+    const from = rel >= 0 && rel + word.length <= line.to ? rel : line.from;
+    altHint.on = true;
+    altHint.from = from;
+    altHint.to = from + word.length;
+    v.dispatch({ effects: hintEffect(Decoration.set(hintMark.range(from, from + word.length))) });
+    return false;
+  },
+});
+
+/** Alt 悬停高亮：用 StateEffect 驱动，避免重建 editor */
+const setHint = StateEffect.define<DecorationSet>();
+const hintMark = Decoration.mark({ class: "cm-goto-def-hint" });
+const hintState = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(deco, tr) {
+    for (const e of tr.effects) if (e.is(setHint)) return e.value;
+    // 文档变化后旧区间失效，必须跟随映射，否则高亮会漂移到别处
+    return deco.map(tr.changes);
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+const hintEffect = (v: DecorationSet | null) => setHint.of(v ?? Decoration.none);
+
 function makeState(): EditorState {
   const md = isMd.value;
   const exts: Extension[] = [
     history(),
+    // AI5：选区变化时把选中的代码挂到 agent store（Ctrl+I 唤起 AI 直接可用）
+    EditorView.updateListener.of(() => syncSelectionRef?.()),
     keymap.of([
       // Ctrl+B 加粗 / Ctrl+I 斜体（Obsidian 习惯，仅 md 生效）
       { key: "Mod-b", run: () => (view ? (wrapSel(view, "**"), true) : false) },
@@ -423,7 +668,8 @@ function makeState(): EditorState {
       ...defaultKeymap,
       ...historyKeymap,
     ]),
-    syntaxHighlighting(defaultHighlightStyle),
+    // md 保持默认高亮 + UI 令牌；代码文件走可切换配色主题（--code-* 变量驱动）
+    ...(md ? [syntaxHighlighting(defaultHighlightStyle)] : codeThemeExtensions()),
     langComp.of([]),
     EditorView.updateListener.of((u) => {
       if (u.docChanged && !syncing) {
@@ -456,6 +702,16 @@ function makeState(): EditorState {
       bracketMatching(),
       closeBrackets(),
       highlightActiveLine(),
+      // Alt+点击跳定义 + Alt 悬停高亮（仅代码语境，md 无符号索引）
+      hintState,
+      gotoDefHandler,
+      // B7-A 档：本地符号联想（复用 code_index，零依赖零模型不联网）
+      autocompletion({
+        override: [symbolCompletion],
+        activateOnTyping: true,
+        // 打字时不因「已高亮」而吞掉补全请求，否则联想很难主动弹出
+        icons: false,
+      }),
       keymap.of([...foldKeymap]),
     );
   }
@@ -491,6 +747,21 @@ function loadLanguage() {
     });
 }
 
+/**
+ * 同步代码配色主题变量到宿主元素。
+ * 高亮样式与 chrome 都引用 --code-* 变量，换肤只需重设变量（零重建）；
+ * md 模式清除变量，回落 UI 令牌。
+ */
+function syncThemeVars() {
+  const el = host.value;
+  if (!el) return;
+  if (isMd.value) {
+    applyCodeThemeVars(el, null);
+    return;
+  }
+  applyCodeThemeVars(el, resolveCodeTheme(settings.data.code_theme, settings.data.theme));
+}
+
 /** 定位到某行（0 基）并滚动到可视区顶部 */
 function gotoLine(line: number) {
   if (!view) return;
@@ -504,7 +775,70 @@ function gotoLine(line: number) {
 
 onMounted(() => {
   if (!host.value) return;
+  syncThemeVars();
   view = new EditorView({ parent: host.value, state: makeState() });
+
+  // AI5 选区上下文：选中代码即挂载到 agent store，
+  // Ctrl+I 唤起 AI 面板即可直接提问，无需复制粘贴
+  const syncSelection = () => {
+    const v = view;
+    if (!v) return;
+    const sel = v.state.selection.main;
+    const path = editor.activePath;
+    if (sel.empty || !path) {
+      agentStore.setSelectionContext(null);
+      return;
+    }
+    const text = v.state.sliceDoc(sel.from, sel.to);
+    if (!text.trim()) {
+      agentStore.setSelectionContext(null);
+      return;
+    }
+    const lineFrom = v.state.doc.lineAt(sel.from);
+    const lineTo = v.state.doc.lineAt(sel.to);
+    agentStore.setSelectionContext({
+      name: path.split("/").pop() ?? path,
+      path,
+      text,
+      from: lineFrom.number - 1,
+      to: lineTo.number - 1,
+    });
+  };
+
+  // Ctrl+I 唤起 AI 面板（选中代码已自动挂载为上下文）。
+  // 注意：md 模式下 Ctrl+i 已被斜体占用，故仅代码模式生效。
+  const onAskAi = (e: KeyboardEvent) => {
+    if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "i") return;
+    if (!view || !view.hasFocus || isMd.value) return;
+    e.preventDefault();
+    agentStore.openPanel();
+  };
+  window.addEventListener("keydown", onAskAi);
+  // Alt+点击后的消歧：Esc 关选择器，数字键直选（≤9 项）
+  const onPickKey = (e: KeyboardEvent) => {
+    if (!pick.open) return;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closePick();
+      return;
+    }
+    if (/^[1-9]$/.test(e.key)) {
+      const it = pick.list[Number(e.key) - 1];
+      if (it) {
+        e.preventDefault();
+        gotoTarget(it);
+      }
+    }
+  };
+  window.addEventListener("keydown", onPickKey);
+  onUnmounted(() => {
+    window.removeEventListener("keydown", onAskAi);
+    window.removeEventListener("keydown", onPickKey);
+  });
+
+  syncSelectionRef = syncSelection;
+  // 初始化时同步一次（可能已有选区）
+  syncSelection();
 
   // 容器尺寸变化（拖窗口/拖分屏分隔条）后强制重新测量，避免留白
   const ro = new ResizeObserver(() => view?.requestMeasure());
@@ -537,6 +871,8 @@ watch(
     view?.setState(makeState());
     // 代码文件：异步加载语言包
     loadLanguage();
+    // 文件类型可能变化（md ↔ 代码），同步配色主题变量
+    syncThemeVars();
     // 反链等行号跳转：纯源码模式没有预览组件兜底，这里直接定位；
     // 有锚点时留给预览组件处理
     const jump = editor.pendingJump;
@@ -556,6 +892,12 @@ watch(
       view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: c } });
     }
   },
+);
+
+// 代码配色主题 / 界面主题（auto 跟随）变化 → 即时换肤（只换变量，不重建编辑器）
+watch(
+  () => [settings.data.code_theme, settings.data.theme],
+  () => syncThemeVars(),
 );
 </script>
 
@@ -582,6 +924,129 @@ watch(
 .se-ai-btn:hover {
   background: var(--interactive-accent-hover);
 }
+/* 高频交互必须给按压反馈；scoped 组件要自己写（anim.css 全局选择器命不中） */
+.se-ai-btn:active {
+  transform: scale(0.96);
+}
+@media (hover: none) {
+  .se-ai-btn:active {
+    transform: none;
+  }
+}
+
+/* ---- Alt+点击跳定义：选择器 ---- */
+.gd-pick {
+  position: absolute;
+  z-index: 40;
+  width: 300px;
+  max-width: 90%;
+  padding: 4px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  box-shadow: var(--shadow-l2);
+  animation: gd-in var(--anim-enter);
+}
+@keyframes gd-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+/* 头/名/容器共用省略号 */
+.gd-pick-word,
+.gd-pick-name,
+.gd-pick-ct {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gd-pick-hd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 6px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.gd-pick-word {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-normal);
+}
+.gd-pick-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-normal);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--anim-hover);
+}
+.gd-pick-row:hover {
+  background: var(--background-modifier-hover);
+}
+/* scoped 组件必须自带按压反馈（anim.css 全局选择器命不中） */
+.gd-pick-row:active {
+  transform: scale(0.98);
+}
+@media (hover: none) {
+  .gd-pick-row:active {
+    transform: none;
+  }
+}
+.gd-pick-kind {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-s);
+  background: var(--interactive-accent-hover-alt);
+  color: var(--text-accent);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+}
+.gd-pick-main {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+.gd-pick-name {
+  font-family: var(--font-mono);
+}
+.gd-pick-ct,
+.gd-pick-path {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.gd-pick-path {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+/* 找不到定义时的瞬时提示（过渡复用 anim.css 的 .emd-fade-*） */
+.gd-flash {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 45;
+  padding: 5px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: 12px;
+  box-shadow: var(--shadow-l1);
+  pointer-events: none;
+}
 </style>
 
 <style>
@@ -596,25 +1061,34 @@ watch(
 }
 .cm-host .cm-scroller {
   overflow-y: auto;
-  background: var(--background-primary);
-  color: var(--text-normal);
+  /* 代码配色主题变量优先（lib/editorThemes.ts），未设置时回落 UI 令牌（md 等场景） */
+  background: var(--code-bg, var(--background-primary));
+  color: var(--code-fg, var(--text-normal));
 }
 .cm-host .cm-gutters {
   display: none;
 }
+/* Alt 按下时，光标下标识符提示「可跳转」（仅描边，不动 color 以免与主题高亮打架） */
+.cm-host .cm-goto-def-hint {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--interactive-accent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
 /* 代码文件：显示行号/折叠槽 */
 .cm-host.is-code .cm-gutters {
   display: block;
-  background: var(--background-primary);
-  border-right: 1px solid var(--background-modifier-border);
-  color: var(--text-faint);
+  background: var(--code-bg, var(--background-primary));
+  border-right: 1px solid var(--code-border, var(--background-modifier-border));
+  color: var(--code-gutter-fg, var(--text-faint));
   font-family: var(--font-mono);
   font-size: calc(12px * var(--font-scale));
   min-width: 44px;
 }
 .cm-host.is-code .cm-activeLineGutter {
-  background: var(--background-primary-alt);
-  color: var(--text-muted);
+  background: var(--code-line, var(--background-primary-alt));
+  color: var(--code-fg, var(--text-muted));
 }
 .cm-host.is-code .cm-foldGutter span {
   color: var(--text-faint);
@@ -623,7 +1097,7 @@ watch(
   color: var(--text-normal);
 }
 .cm-host .cm-activeLine {
-  background: var(--background-primary-alt);
+  background: var(--code-line, var(--background-primary-alt));
 }
 /* wikilink / embed / tag 着色（Obsidian 风格） */
 .cm-wikilink {
@@ -645,7 +1119,7 @@ watch(
 }
 .cm-host .cm-selectionBackground,
 .cm-host .cm-content ::selection {
-  background: var(--selection-background) !important;
+  background: var(--code-selection, var(--selection-background)) !important;
 }
 .cm-host .cm-tooltip-autocomplete > ul {
   font-family: var(--font-ui);

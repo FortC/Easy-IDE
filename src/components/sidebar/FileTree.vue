@@ -1,11 +1,13 @@
 <template>
-  <div class="ft-children">
+  <div class="ft-children" role="group">
     <div v-for="entry in children" :key="entry.path" class="ft-item">
       <!-- 目录 -->
       <div
         v-if="entry.is_dir"
         class="emd-tree-item ft-row"
-        :class="{ 'is-build': isBuildDir(entry) }"
+        role="treeitem"
+        :aria-expanded="vault.expanded[entry.path]"
+        :class="{ 'is-dir': true, 'is-build': isBuildDir(entry) }"
         :style="{ paddingLeft: 6 + depth * 14 + 'px' }"
         @click="vault.toggleExpand(entry.path)"
         @contextmenu.prevent="emitMenu($event, entry)"
@@ -20,12 +22,14 @@
       <div
         v-else
         class="emd-tree-item ft-row"
+        role="treeitem"
+        :aria-selected="isActive(entry)"
         :class="{
           'is-active': isActive(entry),
           'is-multi-selected': multiSelected.has(entry.path),
-          'git-m': vault.gitFiles[entry.path] === 'M',
-          'git-a': ['A', '?'].includes(vault.gitFiles[entry.path] ?? ''),
-          'git-d': vault.gitFiles[entry.path] === 'D',
+          'git-m': vault.vcsFiles[entry.path] === 'M',
+          'git-a': ['A', '?'].includes(vault.vcsFiles[entry.path] ?? ''),
+          'git-d': vault.vcsFiles[entry.path] === 'D',
         }"
         :style="{ paddingLeft: 6 + depth * 14 + 'px' }"
         @click="openEntry(entry, $event)"
@@ -43,17 +47,35 @@
         @open="(p: string) => emit('open', p)"
       />
     </div>
+
+    <!-- 展开后无内容/加载失败时给出提示，避免「箭头翻了但什么都没有」被误认为展不开 -->
+    <div
+      v-if="loadState === 'error'"
+      class="ft-hint ft-hint-retry"
+      :style="{ paddingLeft: 6 + depth * 14 + 'px' }"
+      @click="load"
+    >
+      {{ t("fe.loadFail") }}
+    </div>
+    <div
+      v-else-if="loadState === 'ok' && children.length === 0"
+      class="ft-hint"
+      :style="{ paddingLeft: 6 + depth * 14 + 'px' }"
+    >
+      {{ t("fe.emptyDir") }}
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, onUnmounted, ref } from "vue";
 import Icon from "../common/Icon.vue";
 import { useVaultStore } from "../../stores/vault";
 import { useUiStore } from "../../stores/ui";
 import { useEditorStore } from "../../stores/editor";
 import { useSettingsStore } from "../../stores/settings";
 import { BUILD_DIRS, iconForFile, isTextEditable } from "../../lib/filetypes";
+import { t } from "../../i18n";
 import type { FsEntry } from "../../types";
 
 const props = withDefaults(defineProps<{ dir: string; depth?: number }>(), {
@@ -69,22 +91,36 @@ const ui = useUiStore();
 const editor = useEditorStore();
 const children = ref<FsEntry[]>([]);
 const multiSelected = ref(new Set<string>());
+/** 加载状态：loading/ok/error —— 空目录与加载失败都要有可见反馈 */
+const loadState = ref<"loading" | "ok" | "error">("loading");
 
-// 响应父组件的多选集合变化（通过事件同步）
-window.addEventListener("emd-multi-select-changed", ((e: CustomEvent<Set<string>>) => {
-  multiSelected.value = e.detail;
-}) as EventListener);
+// 响应父组件的多选集合变化（通过事件同步；组件销毁时移除，防监听器泄漏）
+const onMultiSelect = (e: Event) => {
+  multiSelected.value = (e as CustomEvent<Set<string>>).detail;
+};
+window.addEventListener("emd-multi-select-changed", onMultiSelect);
+onUnmounted(() => window.removeEventListener("emd-multi-select-changed", onMultiSelect));
 
-onMounted(async () => {
-  let list = await vault.loadDir(props.dir);
-  // 根目录：隐藏应用私有目录与笔记专用目录
-  if (props.dir === "") {
-    const jotDir = (useSettingsStore().data.daily_dir || "jots").replace(/^\/+$|\/+$/g, "");
-    list = list.filter((e) => e.name !== jotDir && e.name !== "daily" && e.name !== "jots" && e.name !== ".easyide");
+async function load() {
+  loadState.value = "loading";
+  try {
+    let list = await vault.loadDir(props.dir);
+    const settings = useSettingsStore().data;
+    // 代码树：隐藏应用私有目录与笔记专用目录（V3-D6：日记/小计目录分开设定）
+    if (props.dir === "") {
+      const jotDir = (settings.jot_dir || "jots").replace(/^\/+$|\/+$/g, "");
+      const dailyDir = (settings.daily_dir || "daily").replace(/^\/+$|\/+$/g, "");
+      list = list.filter((e) => e.name !== jotDir && e.name !== dailyDir && e.name !== ".easyide");
+    }
+    list = list.filter((e) => e.kind !== "graph");
+    children.value = list;
+    loadState.value = "ok";
+  } catch {
+    loadState.value = "error";
   }
-  list = list.filter((e) => e.kind !== "graph");
-  children.value = list;
-});
+}
+
+onMounted(load);
 
 function iconFor(e: FsEntry): string {
   return iconForFile(e.name);
@@ -126,7 +162,8 @@ function openEntry(e: FsEntry, ev?: MouseEvent) {
     ui.graphPath = e.path;
     ui.view = "graph";
   } else if (e.kind === "image") {
-    emit("open", e.path);
+    // 图片走预览弹窗，不进文本编辑链路（V3 修复 B3）
+    ui.imagePreview = e.path;
   } else if (e.kind === "other" && isTextEditable(e.path)) {
     // 代码 / 配置等文本文件：进编辑器标签
     if (editor.isDirty) editor.save();
@@ -136,6 +173,9 @@ function openEntry(e: FsEntry, ev?: MouseEvent) {
 }
 
 function emitMenu(ev: MouseEvent, entry: FsEntry) {
+  // 必须止住冒泡：FileExplorer 根节点也挂了 contextmenu（用于空白处右键），
+  // 不拦截的话它会在之后把 entry 覆盖成 null，菜单只剩「新建/导入」三项
+  ev.stopPropagation();
   emit("menu", ev, entry);
 }
 </script>
@@ -144,9 +184,39 @@ function emitMenu(ev: MouseEvent, entry: FsEntry) {
 .ft-row {
   gap: 5px;
   font-size: var(--font-ui-size);
+  transition: background var(--anim-hover), transform var(--anim-press);
+}
+/* 按压反馈：基座 emd-tree-item 在 anim.css 的全局选择器里，但本组件是 scoped，必须自写 */
+.ft-row:active {
+  transform: scale(0.98);
+}
+@media (hover: none) {
+  .ft-row:active {
+    transform: none;
+  }
+}
+/* 文件夹行底色：与文件行区分 */
+.ft-row.is-dir {
+  background: var(--background-modifier-hover);
+  font-weight: 600;
 }
 .ft-fileicon {
   color: var(--text-faint);
+}
+/* 空目录 / 加载失败提示行 */
+.ft-hint {
+  height: var(--list-item-height);
+  display: flex;
+  align-items: center;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+.ft-hint-retry {
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.ft-hint-retry:hover {
+  color: var(--text-normal);
 }
 .ft-name {
   overflow: hidden;

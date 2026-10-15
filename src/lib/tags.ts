@@ -1,12 +1,20 @@
 // 快速加标签：写回 frontmatter（与属性面板同一真相源：md 文本）
-import YAML from "yaml";
+// 性能：YAML 走动态 import —— 这是低频操作（用户点「加标签」），
+// 不该让首屏主包为它硬扛 YAML 全量。调用方需 await 本函数。
 import { stripFrontmatter } from "./markdown/renderer";
 
-export function addTagToContent(content: string, tag: string): string {
+export async function addTagToContent(content: string, tag: string): Promise<string> {
   tag = tag.trim().replace(/^#/, "");
   if (!tag) return content;
   const { fm, body } = stripFrontmatter(content);
   let obj: Record<string, unknown> = {};
+  // YAML 为低频依赖，动态载入，避免进首屏主包
+  let YAML: typeof import("yaml");
+  try {
+    YAML = await import("yaml");
+  } catch {
+    return content;
+  }
   if (fm !== null) {
     try {
       obj = (YAML.parse(fm) as Record<string, unknown>) || {};

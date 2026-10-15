@@ -1,10 +1,12 @@
 import { defineStore } from "pinia";
 import { api } from "../ipc/tauri";
-import type { GitFileStatus } from "../types";
+import type { VcsFileStatus } from "../types";
 import type { FsEntry, NoteIndex, OpenVaultResult, VaultEntry } from "../types";
 import { useNotesIndexStore } from "./notesIndex";
 import { useEditorStore } from "./editor";
 import { useUiStore } from "./ui";
+import { invalidateLocalSuggest } from "../lib/localSuggest";
+import { useHotReloadStore } from "./hotReload";
 import { t } from "../i18n";
 
 export const useVaultStore = defineStore("vault", {  state: () => ({
@@ -15,31 +17,45 @@ export const useVaultStore = defineStore("vault", {  state: () => ({
     dirCache: {} as Record<string, FsEntry[]>,
     /** 已展开的目录 */
     expanded: {} as Record<string, boolean>,
-    /** Git 工作区状态（path -> M/A/D/R/?），文件树着色用 */
-    gitFiles: {} as Record<string, string>,
-    gitBranch: "",
-    _gitTimer: null as ReturnType<typeof setTimeout> | null,
+    /** 版本控制工作区状态（path -> M/A/D/R/?），文件树着色用（Git/SVN 统一） */
+    vcsFiles: {} as Record<string, string>,
+    vcsBranch: "",
+    vcsRevision: "",
+    /** "git" | "svn" | "none" */
+    vcsKind: "none",
+    /** 面板手动选择的实现（"git"/"svn"；空 = 自动探测） */
+    vcsPreferred: "" as string,
+    _vcsTimer: null as ReturnType<typeof setTimeout> | null,
   }),
   actions: {
     async loadVaultList() {
       this.vaultList = await api.listVaults();
     },
-    /** 刷新 Git 状态（打开工作区/文件变化防抖调用） */
-    async refreshGit() {
+    /** 刷新版本控制状态（打开工作区/文件变化防抖调用） */
+    async refreshVcs() {
       try {
-        const st = await api.gitStatus();
+        const st = await api.vcsStatus(this.vcsPreferred || null);
         const map: Record<string, string> = {};
-        for (const f of st.files as GitFileStatus[]) map[f.path] = f.status;
-        this.gitFiles = map;
-        this.gitBranch = st.branch;
+        for (const f of st.files as VcsFileStatus[]) map[f.path] = f.status;
+        this.vcsFiles = map;
+        this.vcsBranch = st.branch;
+        this.vcsRevision = st.revision;
+        this.vcsKind = (st.kind as "git" | "svn" | "none") || "none";
       } catch {
-        this.gitFiles = {};
-        this.gitBranch = "";
+        this.vcsFiles = {};
+        this.vcsBranch = "";
+        this.vcsRevision = "";
+        this.vcsKind = "none";
       }
     },
-    refreshGitSoon() {
-      if (this._gitTimer) clearTimeout(this._gitTimer);
-      this._gitTimer = setTimeout(() => this.refreshGit(), 600);
+    /** 面板手动切换实现（git/svn），切不动时回落自动 */
+    async switchVcs(kind: string) {
+      this.vcsPreferred = kind;
+      await this.refreshVcs();
+    },
+    refreshVcsSoon() {
+      if (this._vcsTimer) clearTimeout(this._vcsTimer);
+      this._vcsTimer = setTimeout(() => this.refreshVcs(), 600);
     },
     /** 后端已打开 vault（如右键文件打开）时，前端同步状态 */
     applyOpened(root: string, notes: NoteIndex[]) {
@@ -51,6 +67,8 @@ export const useVaultStore = defineStore("vault", {  state: () => ({
       this.loadDir("");
       this.loadVaultList();
       void useEditorStore().restoreSession();
+      // 工作区换了，符号索引也换了 → B7-A 档联想缓存必须失效，否则会联想出上个项目的符号
+      invalidateLocalSuggest();
     },
     async open(path: string) {
       const res: OpenVaultResult = await api.openVault(path);
@@ -60,9 +78,12 @@ export const useVaultStore = defineStore("vault", {  state: () => ({
       notes.setNotes(res.notes);
       this.dirCache = {};
       this.expanded = {};
+      invalidateLocalSuggest();
+      // 换工作区同样要解除旧接管（上一个项目的进程 id 在这里已无意义）
+      useHotReloadStore().dispose();
       await this.loadDir("");
       await this.loadVaultList();
-      void this.refreshGit();
+      void this.refreshVcs();
       await useEditorStore().restoreSession();
     },
     async create(path: string) {
@@ -72,6 +93,7 @@ export const useVaultStore = defineStore("vault", {  state: () => ({
       useNotesIndexStore().setNotes(res.notes as NoteIndex[]);
       this.dirCache = {};
       this.expanded = {};
+      invalidateLocalSuggest();
       await this.loadDir("");
       await this.loadVaultList();
     },
@@ -81,6 +103,9 @@ export const useVaultStore = defineStore("vault", {  state: () => ({
       this.root = "";
       this.dirCache = {};
       this.expanded = {};
+      invalidateLocalSuggest();
+      // B6：离开工作区必须解除热部署接管，否则旧项目的进程 id 会被带着重启
+      useHotReloadStore().dispose();
       useEditorStore().reset();
       useUiStore().reset();
     },

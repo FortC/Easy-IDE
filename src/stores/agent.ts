@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { api } from "../ipc/tauri";
-import type { AgentMessage, SessionMeta } from "../types";
+import type { AgentMessage, CommandLogEntry, SessionMeta } from "../types";
 import { useConsoleStore } from "./console";
 import { useEditorStore } from "./editor";
 import { useUiStore } from "./ui";
@@ -16,6 +16,83 @@ export interface ChatItem {
 
 const MAX_LOOP = 8;
 
+/**
+ * 长驻进程识别（B1）
+ *
+ * 判定依据是「命令是否启动一个不会自己退出的服务」，而不是精确匹配某条命令 ——
+ * 用户的启动命令千变万化（`mvn spring-boot:run` / `java -jar` / `npm run dev`），
+ * 但「服务型」子命令集合是稳定的。
+ *
+ * 误判代价分析：把一次性命令误判为长驻 → AI 不等结果，观察里没有退出码，
+ * 但进程照常跑完，只是 AI 少看了结果；反之（长驻误判为一次性）→ 卡死，必须避免。
+ */
+const LONG_LIVED_TOKENS = [
+  "spring-boot:run",
+  "spring-boot:devtools",
+  "boot:run",
+  "tomcat:run",
+  "jetty:run",
+  "quarkus:dev",
+  "bootRun",
+  "npm run dev",
+  "pnpm dev",
+  "yarn dev",
+  "vite",
+  "webpack serve",
+  "ng serve",
+  "next dev",
+  "nuxt dev",
+  "uvicorn",
+  "flask run",
+  "manage.py runserver",
+  "nodemon",
+  "nodemon ",
+  "cargo watch",
+];
+
+/** 明确一次性、不该当长驻的（放在长驻表之后判定，避免 `vite build` 被误判） */
+const ONE_SHOT_TOKENS = ["vite build", "next build", "ng build", "flask build"];
+
+/** 判断一条命令是否是「启动后长期运行」的服务 */
+export function isLongLived(command: string): boolean {
+  const c = command.toLowerCase();
+  // -c / --watch 等一次性语义先排除
+  if (ONE_SHOT_TOKENS.some((t) => c.includes(t))) return false;
+  return LONG_LIVED_TOKENS.some((t) => c.includes(t.toLowerCase()));
+}
+
+/**
+ * 就绪检测正则表：命中即把运行态从「启动中」升级为「已就绪」（B2 的绿色常亮）。
+ * 通用而非项目特定，避免为每个框架各写一份。
+ */
+const READY_PATTERNS = [
+  // Spring Boot / Tomcat
+  "Started\\s+\\w+.*in\\s+[\\d.]+\\s*seconds",
+  "Tomcat started on port",
+  // Node / 前端 dev server
+  "ready in \\d+",
+  "Local:\\s+http",
+  "Network:\\s+http",
+  "compiled successfully",
+  "webpack compiled",
+  "vite v\\d+.*ready",
+  // Python
+  "Uvicorn running on",
+  "Running on http",
+  "Development Server is ready",
+  // 通用兜底
+  "Started .* on port \\d+",
+  "listening on port \\d+",
+];
+
+function matchesReady(pattern: string, command: string): boolean {
+  // 命令里没提端口就别套端口正则，避免误报
+  if (/port|端口/i.test(command) || pattern.includes("seconds") || pattern.includes("Local:")) {
+    return true;
+  }
+  return /vite|dev|run|serve|start/i.test(command);
+}
+
 /** AI Agent 中枢（前端编排：流式 → 解析工具调用 → 确认门 → 执行 → 观察 → 继续） */
 export const useAgentStore = defineStore("agent", {
   state: () => ({
@@ -26,6 +103,24 @@ export const useAgentStore = defineStore("agent", {
     streaming: false,
     streamText: "",
     error: "",
+    /** 最近一轮 run() 里执行过的命令记录（配方捕获候选） */
+    lastCommandLog: [] as CommandLogEntry[],
+    /**
+     * 选区上下文（AI5）：编辑器选中代码后自动挂载，随下一次提问一起发给 AI。
+     * 消灭「手动复制粘贴」这一步，也避免 AI 自己 read_file 找回来（多轮往返 + 耗 token）。
+     */
+    contextSelection: null as {
+      /** 文件名（相对路径末段，用于显示） */
+      name: string;
+      /** 相对路径（供 AI 定位） */
+      path: string;
+      /** 选中的文本 */
+      text: string;
+      /** 起始行（0-based） */
+      from: number;
+      /** 结束行（0-based） */
+      to: number;
+    } | null,
     /** 等待用户确认的命令（确认门） */
     pendingCommand: null as {
       command: string;
@@ -41,6 +136,12 @@ export const useAgentStore = defineStore("agent", {
       resolve: (ok: boolean) => void;
     } | null,
     _streamId: 0,
+    /** 正在跑的一次性命令 id 集合（长驻进程不登记：它不该随 AI 停止而被杀） */
+    _cmdIds: new Set<number>(),
+    /** 本轮后台启动的长驻进程（供 UI 显示 pid / 提供停止入口） */
+    lastStarted: null as { id: number; pid: number; command: string } | null,
+    /** 用户点了「停止」：主循环每步检查并退出 */
+    stopped: false,
     _unsubs: [] as (() => void)[],
   }),
   actions: {
@@ -94,20 +195,32 @@ export const useAgentStore = defineStore("agent", {
     async run(userText: string) {
       if (this.streaming) return;
       this.streaming = true;
+      this.stopped = false;
       this.error = "";
       this.streamText = "";
+      this.lastCommandLog = [];
       if (this.items.length === 0) {
         this.title = userText.slice(0, 24);
       }
-      this.items.push({ role: "user", content: userText });
+
+      // AI5：选区上下文注入 —— 把用户选中的代码作为结构化上下文附在提问前，
+      // AI 无需再 read_file 找回来（省一轮往返，也省 token）
+      const ctx = this.contextSelection;
+      const effectiveText = ctx
+        ? `[选区上下文] 文件：${ctx.path}（第 ${ctx.from + 1}-${ctx.to + 1} 行）\n\`\`\`\n${ctx.text}\n\`\`\`\n\n问题：${userText}`
+        : userText;
+      this.contextSelection = null; // 注入一次即清空，避免同一选区反复污染后续提问
+      this.items.push({ role: "user", content: effectiveText });
       try {
         const system = await this.buildSystem();
         for (let i = 0; i < MAX_LOOP; i++) {
+          if (this.stopped) break;
           const messages: AgentMessage[] = this.items.map((it) => ({
             role: it.role,
             content: it.content,
           }));
           const text = await this.streamOnce(messages, system);
+          if (this.stopped) break;
           const call = parseToolCall(text);
           if (!call) {
             this.items.push({ role: "assistant", content: text });
@@ -118,13 +231,38 @@ export const useAgentStore = defineStore("agent", {
           let rejected = false;
           if (call.tool === "run_command") {
             const ok = await this.gateCommand(call.args.command ?? "", call.thought);
+            if (this.stopped) break;
             if (!ok) {
               obs = "用户拒绝了该命令的执行。请调整方案或询问用户。";
               rejected = true;
             } else {
               const consoleStore = useConsoleStore();
-              const { code, tail } = await consoleStore.run(call.args.command ?? "");
-              obs = `[exit code: ${code ?? "null"}]\n${tail || "（无输出）"}`;
+              const command = call.args.command ?? "";
+              // B1：长驻命令（启动服务类）绝不能 await 到进程退出 —— 那会让
+              // AI 永久卡在 streaming，用户只能点「停止」，而「停止」又会杀进程。
+              // 这里 spawn 后立即拿pid 返回，AI 循环正常收尾。
+              if (isLongLived(command)) {
+                const r = await consoleStore.spawn(command, {
+                  background: true,
+                  readyPattern: READY_PATTERNS.find((p) => matchesReady(p, command)),
+                });
+                this.lastStarted = { id: r.id, pid: r.pid, command };
+                // B6：AI 启动的 Java 长驻服务同样纳入热部署编排
+                const { useHotReloadStore } = await import("./hotReload");
+                useHotReloadStore().watch(r.id, null, command);
+                obs =
+                  `[已在后台启动] pid=${r.pid} cmd_id=${r.id}。\n` +
+                  `输出持续写入控制台面板，进程不会随本轮对话结束而停止。` +
+                  `用户可在代码区头部的运行条点「停止」来结束它。` +
+                  `（若为 Java 服务，已开启热更新：改代码会自动编译并重启，编译失败则保持旧进程运行。）`;
+              } else {
+                const { id } = await consoleStore.spawn(command);
+                this._cmdIds.add(id);
+                const { code, tail } = await consoleStore.waitExit(id);
+                this._cmdIds.delete(id);
+                this.lastCommandLog.push({ command, code, tail });
+                obs = `[exit code: ${code ?? "null"}]\n${tail || "（无输出）"}`;
+              }
             }
           } else {
             obs = await execTool(call.tool, call.args);
@@ -144,7 +282,7 @@ export const useAgentStore = defineStore("agent", {
         }
         await this.saveSession();
       } catch (e) {
-        this.error = String(e);
+        if (!this.stopped) this.error = String(e);
       } finally {
         this.streaming = false;
         this.streamText = "";
@@ -218,9 +356,29 @@ export const useAgentStore = defineStore("agent", {
       p?.resolve(ok);
     },
     stop() {
-      if (this._streamId) void api.agentCancel(this._streamId);
+      // 停整条 AI 链：置停止标志（主循环逐步退出）+ 取消当前 AI 流 + 关闭确认门。
+      //
+      // ⚠️ B1 关键修复：这里**不再杀进程**。
+      // 以前 stop() 会调 agentKillCommand，导致「停止 AI」= 「杀掉正在运行的项目」，
+      // 而长驻进程又让 AI 永远处于 streaming，用户唯一出路就是点停止 → 项目被误杀。
+      // 现在「停止 AI」与「停止进程」彻底分离：进程只在用户点运行条的 ⏹ 时才停。
+      this.stopped = true;
+      this.streaming = false;
+      this.streamText = "";
+      if (this._streamId) {
+        void api.agentCancel(this._streamId);
+        this._streamId = 0;
+      }
       if (this.pendingCommand) this.resolveCommand(false);
       if (this.pendingEdit) this.resolveEdit(false);
+    },
+
+    /**
+     * 停止某个动作对应的进程（B2 的 ⏹ 按钮专用）。
+     * 与 stop() 语义分离：只停进程，不动 AI 会话。
+     */
+    stopProcess(id: number) {
+      useConsoleStore().stop(id);
     },
 
     // ---- 会话管理 ----
@@ -271,6 +429,25 @@ export const useAgentStore = defineStore("agent", {
       const ui = useUiStore();
       ui.rightVisible = true;
       ui.rightTab = "ai";
+    },
+    /** 挂载选区上下文（由 SourceEditor 的 selectionSet 驱动） */
+    setSelectionContext(ctx: {
+      name: string;
+      path: string;
+      text: string;
+      from: number;
+      to: number;
+    } | null) {
+      // 空选区或超长选区不挂载（超长多半是全选，AI 上下文反而被噪音淹没）
+      if (!ctx || !ctx.text.trim() || ctx.text.length > 20000) {
+        if (!ctx || !ctx.text.trim()) this.contextSelection = null;
+        return;
+      }
+      this.contextSelection = ctx;
+    },
+    /** 清除选区上下文（用户点 × 或已发送） */
+    clearSelectionContext() {
+      this.contextSelection = null;
     },
   },
 });

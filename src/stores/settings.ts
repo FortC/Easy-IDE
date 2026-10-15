@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { api } from "../ipc/tauri";
-import { defaultSettings, type AppSettings } from "../types";
+import { defaultSettings, type AppSettings, type MotionLevel } from "../types";
 import { setLang } from "../i18n";
 
 export const useSettingsStore = defineStore("settings", {
@@ -29,6 +29,7 @@ export const useSettingsStore = defineStore("settings", {
       this.applyTheme();
       setLang(this.data.language === "en" ? "en" : "zh");
       this.applyFontScale();
+      this.applyMotionLevel();
     },
     async persist() {
       await api.saveSettings(this.data);
@@ -36,6 +37,11 @@ export const useSettingsStore = defineStore("settings", {
     setTheme(theme: "dark" | "light") {
       this.data.theme = theme;
       this.applyTheme(true);
+      this.persist();
+    },
+    /** 代码配色主题（"auto" 跟随界面；SourceEditor 监听字段变化即时换肤） */
+    setCodeTheme(key: string) {
+      this.data.code_theme = key;
       this.persist();
     },
     toggleTheme() {
@@ -54,6 +60,18 @@ export const useSettingsStore = defineStore("settings", {
     setFontScale(scale: string) {
       this.data.font_scale = scale;
       this.applyFontScale();
+      this.persist();
+    },
+    /** 动效强度：挂 data-motion 到 <html>，与系统 prefers-reduced-motion 双保险 */
+    applyMotionLevel() {
+      const lv = this.data.motion_level === "off" || this.data.motion_level === "reduced"
+        ? this.data.motion_level
+        : "full";
+      document.documentElement.setAttribute("data-motion", lv);
+    },
+    setMotionLevel(level: MotionLevel) {
+      this.data.motion_level = level;
+      this.applyMotionLevel();
       this.persist();
     },
     applyTheme(animate = false) {

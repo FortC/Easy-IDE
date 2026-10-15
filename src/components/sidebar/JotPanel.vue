@@ -1,7 +1,7 @@
 <template>
   <div class="jot-panel">
     <div class="emd-panel-header">
-      <span>{{ t("rb.jot") }}</span>
+      <span>{{ t("ab.notes") }}</span>
       <button class="jot-new-btn" :title="t('jot.newJot')" @click="createJot">
         <Icon name="plus" :size="13" />
       </button>
@@ -63,7 +63,7 @@ const vault = useVaultStore();
 
 /** 判断是否为小计 */
 function isJot(path: string): boolean {
-  const dir = (settings.data.daily_dir || "jots").replace(/^\/+|\/+$/g, "");
+  const dir = (settings.data.jot_dir || "jots").replace(/^\/+|\/+$/g, "");
   return path.startsWith(dir + "/") || path.startsWith("daily/") || path.startsWith("jots/") || path.includes("小计-");
 }
 
@@ -158,7 +158,7 @@ async function createJot() {
   const now = new Date();
   const pad = (x: number) => String(x).padStart(2, "0");
   const name = `小计-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
-  const dir = (settings.data.daily_dir || "jots").replace(/^\/+|\/+$/g, "");
+  const dir = (settings.data.jot_dir || "jots").replace(/^\/+|\/+$/g, "");
   await vault.newNote(dir || null, name, "");
   ui.view = "jot";
 }

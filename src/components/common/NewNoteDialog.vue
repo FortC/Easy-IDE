@@ -1,39 +1,44 @@
 <template>
   <transition name="emd-fade">
-    <div v-if="ui.newNoteOpen" class="emd-modal-bg" @click.self="close">
-    <div class="emd-modal nn-modal">
-      <div class="nn-title">{{ t("nn.title") }}</div>
-      <div class="nn-row">
-        <label>{{ t("nn.name") }}</label>
-        <input
-          ref="nameRef"
-          v-model="name"
-          type="text"
-          :placeholder="t('nn.ph')"
-          @keydown.enter="confirm"
-          @keydown.esc="close"
-        />
+    <BaseModal
+      v-if="ui.newNoteOpen"
+      :title="t('nn.title')"
+      width="sm"
+      :show-close="false"
+      @close="close"
+    >
+      <div class="nn-body">
+        <div class="nn-row">
+          <label>{{ t("nn.name") }}</label>
+          <input
+            ref="nameRef"
+            v-model="name"
+            type="text"
+            :placeholder="t('nn.ph')"
+            @keydown.enter="confirm"
+          />
+        </div>
+        <div v-if="templates.length > 0" class="nn-row">
+          <label>{{ t("nn.tpl") }}</label>
+          <select v-model="template">
+            <option value="">{{ t("nn.noTpl") }}</option>
+            <option v-for="tpl in templates" :key="tpl.path" :value="tpl.path">
+              {{ tpl.name }}
+            </option>
+          </select>
+        </div>
       </div>
-      <div v-if="templates.length > 0" class="nn-row">
-        <label>{{ t("nn.tpl") }}</label>
-        <select v-model="template" class="nn-select">
-          <option value="">{{ t("nn.noTpl") }}</option>
-          <option v-for="t in templates" :key="t.path" :value="t.path">
-            {{ t.name }}
-          </option>
-        </select>
-      </div>
-      <div class="nn-actions">
+      <template #footer>
         <button class="emd-btn" @click="close">{{ t("c.cancel") }}</button>
         <button class="emd-btn emd-btn-accent" @click="confirm">{{ t("c.create") }}</button>
-      </div>
-    </div>
-  </div>
+      </template>
+    </BaseModal>
   </transition>
 </template>
 
 <script setup lang="ts">
 import { nextTick, onMounted, ref } from "vue";
+import BaseModal from "./BaseModal.vue";
 import { useUiStore } from "../../stores/ui";
 import { useVaultStore } from "../../stores/vault";
 import { useSettingsStore } from "../../stores/settings";
@@ -93,35 +98,19 @@ function close() {
 </script>
 
 <style scoped>
-.nn-modal {
-  width: 420px;
-  padding: 16px;
-}
-.nn-title {
-  font-size: var(--font-ui-medium);
-  margin-bottom: 12px;
+.nn-body {
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 .nn-row {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-bottom: 12px;
+  gap: var(--space-2);
 }
 .nn-row label {
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
-}
-.nn-select {
-  height: var(--input-height);
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s);
-  padding: 0 8px;
-  color: var(--text-normal);
-}
-.nn-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }
 </style>

@@ -41,7 +41,7 @@ export async function openDailyNote(date = new Date()) {
     }
   }
   const tag = (settings.data.daily_tag || "").trim().replace(/^#/, "");
-  if (tag) content = addTagToContent(content, tag);
+  if (tag) content = await addTagToContent(content, tag);
 
   await vault.newNote(dir || null, name, content);
 }

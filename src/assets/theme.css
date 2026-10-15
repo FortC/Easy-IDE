@@ -26,16 +26,47 @@
   --radius-xl: 16px;
 
   /* 尺寸 */
-  --ribbon-width: 64px;
-  --titlebar-height: 40px;
+  --activitybar-width: 48px;
+  --titlebar-height: 36px;
   --statusbar-height: 24px;
   --input-height: 30px;
   --list-item-height: 26px;
 
-  /* 动效（克制的微反馈，cubic-bezier 自定义；仅 transform/opacity，不触发重排） */
-  --anim-cb: cubic-bezier(0.33, 0.66, 0.5, 1);
-  --anim-fast: 120ms cubic-bezier(0.33, 0.66, 0.5, 1);
-  --anim-medium: 240ms cubic-bezier(0.33, 0.66, 0.5, 1);
+  /* ==========================================================
+     动效体系（七条红线见 AGENTS.md）
+     红线1：只动 opacity / transform —— 走合成器，不触发 reflow
+     红线2：禁止动 width / height / top / left
+     红线3：离场时长 ≤ 入场时长（保证「切得快」）
+     红线4：单个动画 ≤ 300ms
+     红线5：拖拽/滚动中禁动画（见下方 body.is-col-resizing）
+     红线6：禁止 JS 动画库
+     红线7：AI 流式文字不做逐字动画
+     ========================================================== */
+
+  /* 缓动分级 */
+  --anim-cb: cubic-bezier(0.33, 0.66, 0.5, 1); /* 通用（保留兼容） */
+  --anim-ease-out: cubic-bezier(0.16, 1, 0.3, 1); /* 减速：入场、展开 */
+  --anim-ease-in: cubic-bezier(0.4, 0, 1, 1); /* 加速：离场、收起 */
+  --anim-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* 微回弹：按压、成功 */
+  --anim-ease-in-out: cubic-bezier(0.45, 0, 0.55, 1); /* 仅限循环/往复动效（呼吸、脉冲） */
+
+  /* 时长分级 */
+  --dur-instant: 80ms; /* 离场、状态切换 */
+  --dur-fast: 120ms; /* hover、按压、小控件 */
+  --dur-base: 180ms; /* 面板 / 主视图切换 */
+  --dur-slow: 240ms; /* 大面积展开、弹窗 */
+  --dur-loop: 1200ms; /* 无限循环动效（骨架屏、脉冲、呼吸）—— 红线4 的例外，循环不是单次入场 */
+
+  /* 语义别名：业务代码只认这一层，新增动效有据可依 */
+  --anim-hover: var(--dur-fast) var(--anim-ease-out);
+  --anim-press: var(--dur-instant) var(--anim-ease-spring);
+  --anim-enter: var(--dur-base) var(--anim-ease-out);
+  --anim-leave: var(--dur-instant) var(--anim-ease-in);
+  --anim-loop: var(--dur-loop) var(--anim-ease-in-out);
+
+  /* 旧别名（保留兼容，逐步收敛；新代码请勿使用） */
+  --anim-fast: var(--anim-hover);
+  --anim-medium: var(--dur-slow) var(--anim-ease-out);
 
   /* 图谱默认色（视图内可被覆盖） */
   --graph-node: #a882ff;
@@ -63,6 +94,7 @@
   --text-faint: #666666;
   --text-on-accent: #f2f2f2;
   --text-error: #e93147;
+  --text-warning: #d29922;
   --text-success: #4aa662;
 
   --interactive-normal: #2a2a2a;
@@ -118,6 +150,7 @@
   --text-faint: #999999;
   --text-on-accent: #f2f2f2;
   --text-error: #e93147;
+  --text-warning: #a15c00;
   --text-success: #3c9a52;
 
   --interactive-normal: #ececec;
@@ -219,6 +252,33 @@ button {
   background-clip: content-box;
 }
 
+/* ==========================================================
+   间距 / 层级 令牌
+   ========================================================== */
+:root {
+  --space-1: 4px;
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+
+  --z-base: 0;
+  --z-sticky: 10; /* 吸顶/吸底条 */
+  --z-resizer: 20; /* 拖拽分隔条 */
+  --z-dropdown: 900; /* 下拉菜单、气泡 */
+  --z-modal: 1000; /* 模态遮罩 */
+  --z-toast: 1100; /* 全局提示 */
+
+  --window-close: #e81123; /* 标题栏关闭按钮悬停底色 */
+}
+
+/* 键盘焦点环：只在键盘导航时出现，鼠标点击不打扰（红线：统一，不逐处手写） */
+:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -2px;
+  border-radius: var(--radius-s);
+}
+
 /* 通用控件 */
 input[type="text"],
 input[type="search"],
@@ -227,9 +287,9 @@ textarea.emd-input {
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   height: var(--input-height);
-  padding: 0 8px;
+  padding: 0 var(--space-3);
   width: 100%;
-  transition: border-color var(--anim-fast);
+  transition: border-color var(--anim-hover);
 }
 input[type="text"]:focus,
 input[type="search"]:focus,
@@ -237,18 +297,35 @@ textarea.emd-input:focus {
   border-color: var(--interactive-accent);
 }
 
+/* 下拉选择：此前 3 处组件各自复制，现在统一到基座 */
+select {
+  background: var(--background-modifier-form-field, var(--background-primary));
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  height: var(--input-height);
+  padding: 0 var(--space-2);
+  color: var(--text-normal);
+  font-size: var(--font-ui-size);
+  transition: border-color var(--anim-hover);
+}
+select:hover {
+  border-color: var(--background-modifier-border-hover);
+}
+
 /* 按钮体系（Obsidian 风格） */
 .emd-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  gap: var(--space-2);
   height: var(--input-height);
-  padding: 0 14px;
+  padding: 0 var(--space-4);
   border-radius: var(--radius-s);
   background: var(--interactive-normal);
   color: var(--text-normal);
-  transition: background var(--anim-fast);
+  transition: background var(--anim-hover), transform var(--anim-press);
   white-space: nowrap;
+  user-select: none;
 }
 .emd-btn:hover {
   background: var(--interactive-hover);
@@ -259,6 +336,93 @@ textarea.emd-input:focus {
 }
 .emd-btn.emd-btn-accent:hover {
   background: var(--interactive-accent-hover);
+}
+.emd-btn.emd-btn-danger {
+  background: transparent;
+  color: var(--text-error);
+  border: 1px solid var(--background-modifier-border);
+}
+.emd-btn.emd-btn-danger:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--text-error);
+}
+.emd-btn.emd-btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+}
+.emd-btn.emd-btn-ghost:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.emd-btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+/* 小号：工具条 / 面板内紧凑按钮 */
+.emd-btn.emd-btn-sm {
+  height: 24px;
+  padding: 0 var(--space-3);
+  font-size: var(--font-ui-smaller);
+}
+
+/* 分段控件（4 处手写实现收敛到这里） */
+.emd-seg {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+}
+.emd-seg button {
+  height: 22px;
+  padding: 0 var(--space-3);
+  border-radius: 3px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  transition: background var(--anim-hover), color var(--anim-hover);
+}
+.emd-seg button:hover {
+  color: var(--text-normal);
+}
+.emd-seg button.is-active {
+  background: var(--background-modifier-active-hover);
+  color: var(--text-normal);
+}
+
+/* 开关（此前 checkbox/switch 用浏览器默认外观裸奔） */
+.emd-switch {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 17px;
+  border-radius: 9px;
+  background: var(--background-modifier-border);
+  transition: background var(--anim-hover);
+}
+.emd-switch.is-on {
+  background: var(--interactive-accent);
+}
+.emd-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform var(--anim-press);
+}
+.emd-switch.is-on::after {
+  transform: translateX(13px);
+}
+@media (hover: none) {
+  .emd-switch:active::after {
+    transform: none;
+  }
+  .emd-switch.is-on:active::after {
+    transform: translateX(13px);
+  }
 }
 
 /* 面板标题（Obsidian 侧栏小节标题） */
@@ -273,19 +437,19 @@ textarea.emd-input:focus {
   justify-content: space-between;
 }
 
-/* 树形列表条目 */
+/* 树形列表条目 —— 文件树 / 大纲 / 文档树共用这一条基座 */
 .emd-tree-item {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   height: var(--list-item-height);
-  padding: 0 6px;
+  padding: 0 var(--space-2);
   border-radius: var(--radius-s);
   color: var(--text-normal);
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
-  transition: background var(--anim-fast);
+  transition: background var(--anim-hover);
 }
 .emd-tree-item:hover {
   background: var(--background-modifier-hover);
@@ -293,158 +457,4 @@ textarea.emd-input:focus {
 .emd-tree-item.is-active {
   background: var(--background-modifier-active-hover);
   color: var(--text-normal);
-}
-
-/* ---------- Vue 过渡动画（全 app 复用；GPU 合成友好） ---------- */
-/* 下拉/气泡：淡入 + 轻微下移 */
-.emd-pop-enter-active,
-.emd-pop-leave-active {
-  transition: opacity 130ms var(--anim-cb), transform 130ms var(--anim-cb);
-}
-.emd-pop-enter-from,
-.emd-pop-leave-to {
-  opacity: 0;
-}
-.emd-pop-enter-from {
-  transform: translateY(-5px) scale(0.985);
-}
-.emd-pop-leave-to {
-  transform: translateY(-2px);
-}
-
-/* 模态遮罩：淡入淡出，内容轻微缩放 */
-.emd-fade-enter-active,
-.emd-fade-leave-active {
-  transition: opacity 150ms var(--anim-cb);
-}
-.emd-fade-enter-active .emd-modal,
-.emd-fade-leave-active .emd-modal {
-  transition: transform 170ms var(--anim-cb);
-}
-.emd-fade-enter-from,
-.emd-fade-leave-to {
-  opacity: 0;
-}
-.emd-fade-enter-from .emd-modal {
-  transform: translateY(10px) scale(0.97);
-}
-.emd-fade-leave-to .emd-modal {
-  transform: translateY(4px) scale(0.985);
-}
-
-/* 侧栏滑入滑出 */
-.emd-side-l-enter-active,
-.emd-side-l-leave-active,
-.emd-side-r-enter-active,
-.emd-side-r-leave-active {
-  transition: opacity 150ms var(--anim-cb), transform 150ms var(--anim-cb);
-}
-.emd-side-l-enter-from,
-.emd-side-l-leave-to,
-.emd-side-r-enter-from,
-.emd-side-r-leave-to {
-  opacity: 0;
-}
-.emd-side-l-enter-from,
-.emd-side-l-leave-to {
-  transform: translateX(-12px);
-}
-.emd-side-r-enter-from,
-.emd-side-r-leave-to {
-  transform: translateX(12px);
-}
-
-/* 主视图切换（编辑 ↔ 图谱 ↔ 画布 ↔ 日历）：淡入 + 轻微上浮；离场更短保证切得快 */
-.emd-view-enter-active {
-  transition: opacity 130ms var(--anim-cb), transform 130ms var(--anim-cb);
-}
-.emd-view-leave-active {
-  transition: opacity 90ms var(--anim-cb);
-}
-.emd-view-enter-from {
-  opacity: 0;
-  transform: translateY(6px) scale(0.996);
-}
-.emd-view-leave-to {
-  opacity: 0;
-}
-
-/* 面板内切页（设置页等）：轻淡入 + 上浮 */
-.emd-pane-enter-active {
-  transition: opacity 130ms var(--anim-cb), transform 130ms var(--anim-cb);
-}
-.emd-pane-leave-active {
-  transition: opacity 80ms var(--anim-cb);
-}
-.emd-pane-enter-from {
-  opacity: 0;
-  transform: translateY(4px);
-}
-.emd-pane-leave-to {
-  opacity: 0;
-}
-
-/* 主题切换：View Transitions 全窗口 crossfade（一次合成器快照，无逐元素过渡开销） */
-::view-transition-old(root),
-::view-transition-new(root) {
-  animation-duration: 180ms;
-  animation-timing-function: var(--anim-cb);
-}
-
-/* 拖拽调宽时禁用一切过渡，保证 100% 跟手 */
-body.is-col-resizing * {
-  transition: none !important;
-}
-
-/* 无障碍：用户系统要求减少动效时关闭动画 */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    transition-duration: 0.01ms !important;
-    animation-duration: 0.01ms !important;
-  }
-}
-
-/* 拖拽调宽时的全局光标（分栏/分屏分隔条） */
-body.is-col-resizing,
-body.is-col-resizing * {
-  cursor: col-resize !important;
-  user-select: none !important;
-}
-
-/* 打印导出：仅显示打印层 */
-#print-root {
-  display: none;
-}
-@media print {
-  body > *:not(#print-root) {
-    display: none !important;
-  }
-  #print-root {
-    display: block !important;
-  }
-}
-
-/* 模态框（Obsidian 弹窗） */
-.emd-modal-bg {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.emd-modal {
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-l);
-  box-shadow: var(--shadow-l2);
-  width: 560px;
-  max-width: 92vw;
-  max-height: 76vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
 }

@@ -22,7 +22,7 @@ const DEFAULT_MAX_HITS: usize = 500;
 pub fn is_excluded_dir(name: &str) -> bool {
     matches!(
         name,
-        ".git" | ".easyide" | "node_modules" | "target" | "build" | "dist" | "out"
+        ".git" | ".svn" | ".easyide" | "node_modules" | "target" | "build" | "dist" | "out"
             | ".gradle" | "vendor" | "bower_components" | "__pycache__" | ".venv" | "venv"
             | ".next" | ".nuxt" | ".cache" | "cmake-build-debug" | "cmake-build-release"
             | "$RECYCLE.BIN" | "System Volume Information"
@@ -256,7 +256,7 @@ impl CodeIndexEngine {
         if q.is_empty() {
             return vec![];
         }
-        let mut hits: Vec<(u8, SymbolHit)> = Vec::new();
+        let mut hits: Vec<(u32, SymbolHit)> = Vec::new();
         for (path, fs) in &self.symbols {
             for s in &fs.symbols {
                 if let Some(ks) = kinds {
@@ -265,6 +265,7 @@ impl CodeIndexEngine {
                     }
                 }
                 let name_lower = s.name.to_lowercase();
+                // rank 越小越靠前；模糊命中统一落在 1000 段，与精确命中分层
                 let rank = if name_lower.starts_with(&q) {
                     0
                 } else if word_boundary_contains(&s.name, &name_lower, &q) {
@@ -272,7 +273,10 @@ impl CodeIndexEngine {
                 } else if name_lower.contains(&q) {
                     2
                 } else {
-                    continue;
+                    match fuzzy_score(&name_lower, &q) {
+                        Some(sc) => 1000 + sc,
+                        None => continue,
+                    }
                 };
                 hits.push((
                     rank,
@@ -300,16 +304,20 @@ impl CodeIndexEngine {
         if q.is_empty() {
             return vec![];
         }
-        let mut hits: Vec<(u8, CodeHit)> = Vec::new();
+        let mut hits: Vec<(u32, CodeHit)> = Vec::new();
         for (path, entry) in &self.files {
             let name_lower = entry.name.to_lowercase();
             let stem_lower = name_lower.split('.').next().unwrap_or(&name_lower);
+            let path_lower = path.to_lowercase();
+            // rank 越小越靠前；模糊命中统一落在 1000 段，与精确命中分层
             let rank = if stem_lower.starts_with(&q) {
                 0
             } else if name_lower.contains(&q) {
                 1
-            } else if path.to_lowercase().contains(&q) {
+            } else if path_lower.contains(&q) {
                 2
+            } else if let Some(sc) = fuzzy_score(stem_lower, &q) {
+                1000 + sc
             } else {
                 continue;
             };
@@ -368,6 +376,54 @@ fn word_boundary_contains(name: &str, name_lower: &str, q: &str) -> bool {
         start = at + 1;
     }
     false
+}
+
+/// 模糊匹配打分（子序列），命中返回 Some(分数)，越小越靠前。
+/// 支持两种直觉：
+///   - 连续片段优先：`gt` 命中 `getTitle` 优于命中 `g`…`a`…`t` 的长名
+///   - 首字母优先：`gt` 命中 `getTitle` 的 g+t（驼峰缩写）优于中间的 t+g
+/// 分数按「跳字符号数 + 首字符惩罚 + 总跨度惩罚」合成，无外部依赖。
+fn fuzzy_score(name_lower: &str, q: &str) -> Option<u32> {
+    if q.is_empty() || q.len() > name_lower.len() {
+        return None;
+    }
+    let chars: Vec<char> = name_lower.chars().collect();
+    let needle: Vec<char> = q.chars().collect();
+
+    // 贪心匹配：每一步都优先取「词首」（前一个字符是分隔符或大小写边界），
+    // 其次取紧邻位置，这样 getTitle 能被 gt 以最短跨度命中。
+    let mut score: u32 = 0;
+    let mut qi = 0usize;
+    let mut last_hit: Option<usize> = None;
+    for (i, c) in chars.iter().enumerate() {
+        if c != &needle[qi] {
+            continue;
+        }
+        // 跳跃惩罚：与上一次命中距离越远扣得越狠
+        if let Some(prev) = last_hit {
+            let gap = (i - prev - 1) as u32;
+            score += gap * gap;
+        } else if i > 0 {
+            // 首字符没落在开头需要付出代价
+            score += i as u32;
+        }
+        // 词首不加罚，中间命中加一点，偏好驼峰/分隔符词首
+        if i > 0 {
+            let prev = chars[i - 1];
+            if !(prev == '_' || prev == '.' || prev == '-' || prev == '/') {
+                score += 1;
+            }
+        }
+        last_hit = Some(i);
+        qi += 1;
+        if qi == needle.len() {
+            // 全局跨度惩罚：命中散落在超长名字里多半不是用户想要的
+            let span = i + 1;
+            score += (span as u32) / 8;
+            return Some(score);
+        }
+    }
+    None
 }
 
 /// 并行全文搜索：候选文件跨线程分片，全局命中数封顶
@@ -463,6 +519,38 @@ pub fn parallel_text_search(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fuzzy_score_matches_subsequence() {
+        // 驼峰缩写：gt 应能命中 getTitle
+        assert!(fuzzy_score("gettitle", "gt").is_some());
+        // 普通子序列
+        assert!(fuzzy_score("searchpalette", "sp").is_some());
+        // 非子序列不应命中
+        assert!(fuzzy_score("gettitle", "tz").is_none());
+        // 空查询与超长查询
+        assert!(fuzzy_score("abc", "").is_none());
+        assert!(fuzzy_score("ab", "abc").is_none());
+    }
+
+    #[test]
+    fn fuzzy_score_prefers_tight_match() {
+        // 同为子序列，散落的命中分数必须高于紧凑命中
+        let tight = fuzzy_score("gt", "gt").unwrap();
+        let loose = fuzzy_score("gxxxxxxxxxxt", "gt").unwrap();
+        assert!(tight < loose, "tight={tight} loose={loose}");
+        // 开头命中的分数必须小于从中间开始命中
+        let at_start = fuzzy_score("gettitle", "get").unwrap();
+        let at_middle = fuzzy_score("agetitle", "get").unwrap();
+        assert!(at_start < at_middle, "start={at_start} middle={at_middle}");
+    }
+
+    #[test]
+    fn fuzzy_rank_layering() {
+        // 模糊分统一落在 1000 段，确保与精确命中（0/1/2）分层排序时永远靠后
+        let fuzzy: u32 = 1000 + fuzzy_score("codebase", "cde").unwrap();
+        assert!(0_u32 < fuzzy);
+    }
 
     /// 临时目录里搭一个迷你项目，跑通 扫描→排除→符号检索→文件检索→全文搜索 全链路
     #[test]

@@ -61,7 +61,7 @@ function cls(l: string): string {
   background: rgba(78, 201, 112, 0.08);
 }
 .dv-line.is-del .dv-text {
-  color: var(--text-error, #e93147);
+  color: var(--text-error);
   background: rgba(233, 49, 71, 0.08);
 }
 .dv-line.is-hunk .dv-text {

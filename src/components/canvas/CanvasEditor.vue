@@ -210,7 +210,10 @@ import { useUiStore } from "../../stores/ui";
 import { useVaultStore } from "../../stores/vault";
 import { useNotesIndexStore } from "../../stores/notesIndex";
 import { useSettingsStore } from "../../stores/settings";
-import { renderMarkdown, emdAssetUrl } from "../../lib/markdown/renderer";
+// CanvasEditor 本身已是懒加载组件，直接静态引入 markdown-it 渲染器即可
+// （渲染器已从 renderer.ts 拆出，不牵连首屏主包）
+import { renderMarkdown } from "../../lib/markdown/md-render";
+import { emdAssetUrl } from "../../lib/markdown/renderer";
 import { resolveTarget } from "../../lib/markdown/links";
 import { t, tf } from "../../i18n";
 

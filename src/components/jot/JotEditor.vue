@@ -70,8 +70,8 @@ const suggestions = computed(() => indexStore.tags.slice(0, 10).map((x) => x.tag
 
 const title = computed(() =>
   editor.activePath
-    ? editor.activePath.split("/").pop()?.replace(/\.md$/i, "") || t("rb.jot")
-    : t("rb.jot"),
+    ? editor.activePath.split("/").pop()?.replace(/\.md$/i, "") || t("ab.notes")
+    : t("ab.notes"),
 );
 
 onMounted(() => {
@@ -136,8 +136,8 @@ function addTag() {
   if (!tg) return;
   quickAdd(tg);
 }
-function quickAdd(tg: string) {
-  editor.setContent(addTagToContent(editor.content, tg));
+async function quickAdd(tg: string) {
+  editor.setContent(await addTagToContent(editor.content, tg));
   tagOpen.value = false;
   tagInput.value = "";
 }

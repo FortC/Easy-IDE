@@ -45,7 +45,7 @@
       <div class="ts-box" :title="t('tb.searchTitle')" @pointerdown.stop @click="openSearch">
         <Icon name="search" :size="13" />
         <span class="ts-hint">{{ t("tb.searchHint") }}</span>
-        <span class="ts-kbd">Ctrl+Shift+F</span>
+        <span class="ts-kbd">{{ t("tb.searchKbd") }}</span>
       </div>
     </div>
 
@@ -234,14 +234,23 @@ const closeWin = () => win.close();
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
-  transition: background var(--anim-fast);
+  transition: background var(--anim-hover), color var(--anim-hover), transform var(--anim-press);
 }
 .tb-btn:hover {
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
+/* 窗口控件用更轻的按压缩放，避免过度反馈 */
+.tb-btn:active {
+  transform: scale(0.92);
+}
+@media (hover: none) {
+  .tb-btn:active {
+    transform: none;
+  }
+}
 .tb-close:hover {
-  background: #e81123;
+  background: var(--window-close);
   color: #fff;
 }
 </style>

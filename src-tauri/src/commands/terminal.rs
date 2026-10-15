@@ -22,7 +22,8 @@ struct TermHandle {
 }
 
 fn with_terminals<T>(f: impl FnOnce(&mut HashMap<u32, TermHandle>) -> T) -> T {
-    let mut guard = TERMINALS.lock().unwrap();
+    // 锁中毒不 panic：接管内部值继续用
+    let mut guard = TERMINALS.lock().unwrap_or_else(|p| p.into_inner());
     f(guard.get_or_insert_with(HashMap::new))
 }
 
@@ -41,7 +42,7 @@ pub struct TermExit {
 
 /// 创建终端会话（cwd=工作区根，注入工具链环境），返回会话 id
 #[tauri::command]
-pub fn terminal_create(
+pub async fn terminal_create(
     app: AppHandle,
     state: State<'_, AppState>,
     cols: u16,
@@ -51,12 +52,21 @@ pub fn terminal_create(
     if let Some(id) = with_terminals(|m| m.keys().next().copied()) {
         return Ok(id);
     }
-    let (root, env) = {
+    let root = {
         let guard = state.vault.lock().map_err(|e| e.to_string())?;
-        let vc = guard.as_ref().ok_or("尚未打开工作区")?;
-        let settings = config::load_settings(&app);
-        (vc.root.clone(), toolchain::build_env(&settings))
+        guard
+            .as_ref()
+            .map(|vc| vc.root.clone())
+            .ok_or_else(|| "尚未打开工作区".to_string())?
     };
+    // 工具链环境构建可能 spawn java -version / mvn -v 等子进程，放后台线程避免阻塞 UI
+    let bg_app = app.clone();
+    let (root, env) = tauri::async_runtime::spawn_blocking(move || {
+        let settings = config::load_settings(&bg_app);
+        (root, toolchain::build_env(&settings))
+    })
+    .await
+    .map_err(|e| format!("后台任务异常：{}", e))?;
     let pty_system = NativePtySystem::default();
     let pair = pty_system
         .openpty(PtySize { rows: rows.max(2), cols: cols.max(10), pixel_width: 0, pixel_height: 0 })
@@ -151,4 +161,14 @@ pub fn terminal_kill(id: u32) -> Result<(), String> {
 #[tauri::command]
 pub fn terminal_alive() -> bool {
     with_terminals(|m| !m.is_empty())
+}
+
+/// 退出清理：终止全部终端会话（幂等；未启动或已清空时安全返回，退出清理钩子调用）
+pub fn kill_session() {
+    with_terminals(|m| {
+        for (_id, h) in m.iter_mut() {
+            let _ = h.child.kill();
+        }
+        m.clear();
+    });
 }

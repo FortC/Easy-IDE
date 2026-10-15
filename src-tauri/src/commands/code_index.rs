@@ -47,9 +47,9 @@ pub fn code_file_search(
     })
 }
 
-/// 全文搜索（Ctrl+Shift+F）：并行扫描全部文本文件
+/// 全文搜索（Ctrl+Shift+F）：并行扫描全部文本文件（放后台线程，避免大库搜索冻结窗口）
 #[tauri::command]
-pub fn code_text_search(
+pub async fn code_text_search(
     state: State<'_, AppState>,
     query: String,
     case_sensitive: Option<bool>,
@@ -59,7 +59,7 @@ pub fn code_text_search(
     if query.is_empty() {
         return Ok(vec![]);
     }
-    // 候选集在锁内取，搜索在锁外跑（不阻塞其它命令）
+    // 候选集在锁内取，搜索在锁外跑（锁不跨 await 持有）
     let (root, candidates) = {
         let guard = state.vault.lock().map_err(|e| e.to_string())?;
         match guard.as_ref() {
@@ -67,11 +67,11 @@ pub fn code_text_search(
             None => return Err("尚未打开工作区".into()),
         }
     };
-    Ok(parallel_text_search(
-        &root,
-        &candidates,
-        &query,
-        case_sensitive.unwrap_or(false),
-        max_results.unwrap_or(500),
-    ))
+    let case_sensitive = case_sensitive.unwrap_or(false);
+    let max_results = max_results.unwrap_or(500);
+    tauri::async_runtime::spawn_blocking(move || {
+        parallel_text_search(&root, &candidates, &query, case_sensitive, max_results)
+    })
+    .await
+    .map_err(|e| format!("后台任务异常：{}", e))
 }

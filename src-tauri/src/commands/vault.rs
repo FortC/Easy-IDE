@@ -14,39 +14,40 @@ pub fn list_vaults(app: AppHandle) -> Vec<config::VaultEntry> {
     config::load_vaults(&app)
 }
 
-/// 打开已有 vault：增量加载索引、启动文件监听
+/// 打开已有 vault：增量加载索引、启动文件监听。
+/// 缓存加载/文件 IO 放后台线程，避免大项目首开冻结窗口。
 #[tauri::command]
-pub fn open_vault(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    path: String,
-) -> Result<OpenVaultResult, String> {
-    let root = PathBuf::from(&path);
-    let meta = std::fs::metadata(&root).map_err(|e| format!("无法访问文件夹：{}", e))?;
-    if !meta.is_dir() {
-        return Err("所选路径不是文件夹".into());
-    }
-    open_vault_inner(app, state, root, path)
+pub async fn open_vault(app: AppHandle, path: String) -> Result<OpenVaultResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = PathBuf::from(&path);
+        let meta = std::fs::metadata(&root).map_err(|e| format!("无法访问文件夹：{}", e))?;
+        if !meta.is_dir() {
+            return Err("所选路径不是文件夹".into());
+        }
+        open_vault_inner(app, root, path)
+    })
+    .await
+    .map_err(|e| format!("后台任务异常：{}", e))?
 }
 
 /// 创建新 vault（空文件夹）并打开
 #[tauri::command]
-pub fn create_vault(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    path: String,
-) -> Result<OpenVaultResult, String> {
-    let root = PathBuf::from(&path);
-    if root.exists() {
-        return Err("目录已存在".into());
-    }
-    std::fs::create_dir_all(&root).map_err(|e| format!("创建失败：{}", e))?;
-    open_vault_inner(app, state, root, path)
+pub async fn create_vault(app: AppHandle, path: String) -> Result<OpenVaultResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = PathBuf::from(&path);
+        if root.exists() {
+            return Err("目录已存在".into());
+        }
+        std::fs::create_dir_all(&root).map_err(|e| format!("创建失败：{}", e))?;
+        open_vault_inner(app, root, path)
+    })
+    .await
+    .map_err(|e| format!("后台任务异常：{}", e))?
 }
 
+/// 打开 vault 主流程（可在后台线程整段执行；状态经 AppHandle 取，锁不跨 await 持有）
 pub(crate) fn open_vault_inner(
     app: AppHandle,
-    state: State<'_, AppState>,
     root: PathBuf,
     path: String,
 ) -> Result<OpenVaultResult, String> {
@@ -54,6 +55,7 @@ pub(crate) fn open_vault_inner(
 
     // 关闭旧 vault 的监听
     {
+        let state = app.state::<AppState>();
         let mut guard = state.vault.lock().map_err(|e| e.to_string())?;
         if let Some(old) = guard.as_mut() {
             if let Some(w) = old.watcher.take() {
@@ -76,6 +78,7 @@ pub(crate) fn open_vault_inner(
 
     let notes = engine.all_notes();
     {
+        let state = app.state::<AppState>();
         let mut guard = state.vault.lock().map_err(|e| e.to_string())?;
         *guard = Some(VaultContext {
             root: root.clone(),
