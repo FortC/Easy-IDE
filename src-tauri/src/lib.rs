@@ -124,6 +124,7 @@ pub fn run() {
             commands::os_open::get_pending_file,
             commands::os_open::open_path_from_os,
             commands::os_open::open_as_temp,
+            commands::os_open::save_temp_back,
             commands::os_open::register_context_menu,
             commands::os_open::unregister_context_menu,
             commands::os_open::open_default_apps_settings,

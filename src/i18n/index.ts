@@ -860,7 +860,7 @@ const dict: Record<string, [string, string]> = {
   "oc.vault": ["以项目打开", "Open as project"],
   "oc.vaultDesc": ["文件所在目录将作为项目，可直接编辑、建立双链", "The file's folder becomes the project — edit and link freely"],
   "oc.temp": ["临时文件打开", "Open as temp file"],
-  "oc.tempDesc": ["拷贝到临时目录查看，不影响原文件", "Copy to a temp folder — original stays untouched"],
+  "oc.tempDesc": ["拷贝到临时目录编辑，保存时自动回写原文件", "Edit a temp copy — saving writes back to the original file"],
 };
 
 export const locale = ref<Lang>("zh");

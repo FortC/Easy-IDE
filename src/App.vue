@@ -154,7 +154,8 @@ async function doOpen(mode: "vault" | "temp" | "cancel") {
       ui.canvasPath = res.rel;
       ui.view = "canvas";
     } else {
-      await editor.openNote(res.rel);
+      // origin_abs：临时打开时记录原始文件，保存时自动回写（临时模式此前只写副本，原文件不变）
+      await editor.openNote(res.rel, null, res.origin_abs);
       ui.view = "editor";
     }
   } catch (e) {

@@ -261,9 +261,18 @@ export const api = {
   // ---- 系统级打开（右键菜单/双击文件） ----
   getPendingFile: () => invoke<string | null>("get_pending_file"),
   openPathFromOs: (path: string) =>
-    invoke<{ root: string; notes: NoteIndex[]; rel: string }>("open_path_from_os", { path }),
+    invoke<{ root: string; notes: NoteIndex[]; rel: string; origin_abs: string | null }>(
+      "open_path_from_os",
+      { path },
+    ),
   openAsTemp: (path: string) =>
-    invoke<{ root: string; notes: NoteIndex[]; rel: string }>("open_as_temp", { path }),
+    invoke<{ root: string; notes: NoteIndex[]; rel: string; origin_abs: string | null }>(
+      "open_as_temp",
+      { path },
+    ),
+  /** 临时文件保存回写：返回是否确实回写了原始文件（false = 非临时打开，无映射） */
+  saveTempBack: (path: string, content: string) =>
+    invoke<boolean>("save_temp_back", { path, content }),
   registerContextMenu: () => invoke<void>("register_context_menu"),
   unregisterContextMenu: () => invoke<void>("unregister_context_menu"),
   openDefaultAppsSettings: () => invoke<void>("open_default_apps_settings"),

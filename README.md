@@ -22,7 +22,7 @@
 | P2 | 项目文档中心（MD 扫描/五级分类链/归档/ZIP/AGENTS.md/AI 分类与快捷操作，知识库项目维度 .easyide/） | ✅ 已完成 |
 | P3 | AI Agent 中枢（流式/多轮/工具调用循环 + 命令确认门）+ 工具链配置（JDK/Maven/Node/Git 自动探测）+ 控制台 + 7 个预设场景（运行/日志/构建/依赖/修复/解读/测试） | ✅ 已完成 |
 | P4 | Git 集成（状态着色/分支面板/diff/AI 提交）、Maven 依赖树/冲突/一键排除（Maven Helper 等价）、增量包（tag/commit 基线 + war/fat-jar/classes 模板 + 历史） | ✅ 已完成 |
-| P5 | 快捷键速查页、CHANGELOG、发布构建（NSIS 安装包 3.30MB） | ✅ 已完成 |
+| P5 | 快捷键速查页、CHANGELOG、发布构建（NSIS 安装包 3.31MB） | ✅ 已完成 |
 
 ## 技术栈
 
@@ -32,7 +32,7 @@
 
 ## 安装 / Install
 
-- **安装包**（推荐）：运行 `src-tauri/target/release/bundle/nsis/EasyIDE_0.2.6_x64-setup.exe`（中文向导、免管理员、当前用户安装，自动注册 `.md` 右键菜单）。
+- **安装包**（推荐）：运行 `src-tauri/target/release/bundle/nsis/EasyIDE_0.2.7_x64-setup.exe`（中文向导、免管理员、当前用户安装，自动注册 `.md` 右键菜单）。
 - **便携版**：直接运行 `src-tauri/target/release/EasyIDE.exe`，单文件绿色免安装。
 - 或从 [Releases](https://github.com/FortC/Easy-IDE/releases) 下载最新版本。
 
@@ -66,7 +66,7 @@ cargo check          # Rust 侧检查（在 src-tauri/ 下）
 | 索引缓存写入 / 加载 | — | 11.5 ms / 8.8 ms |
 | 符号搜索 | < 30ms | **3.4 ms** |
 | 全文搜索（10k 文件并行） | < 300ms | **37 ms** |
-| 安装包 | < 15MB | **3.30 MB** |
+| 安装包 | < 15MB | **3.31 MB** |
 
 冷启动分段耗时可在 DevTools Console 查看（`localStorage.easyide-boot-breakdown`），含「导航→脚本」「导航→挂载」「Rust→挂载」三段。
 

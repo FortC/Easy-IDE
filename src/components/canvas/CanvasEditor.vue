@@ -307,7 +307,10 @@ async function saveNow() {
     edges: data.edges,
   };
   try {
-    await api.writeTextFile(ui.canvasPath, JSON.stringify(out, null, 2));
+    const json = JSON.stringify(out, null, 2);
+    await api.writeTextFile(ui.canvasPath, json);
+    // 机会式回写：若是「临时文件打开」的画布，同步写回原始文件；非临时（无映射）返回 false 忽略
+    await api.saveTempBack(ui.canvasPath, json).catch(() => undefined);
     suppressReloadUntil = Date.now() + 1500;
   } catch {
     /* 磁盘异常时静默，避免卸载路径报错 */
